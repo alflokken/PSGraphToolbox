@@ -1,0 +1,14 @@
+*.csv
+*.html
+*.json
+*.zip
+*.txt
+*.xml
+*.yaml
+*.yml
+*.xls
+*.xlsx
+*.log
+*.bak
+*.psd1
+*.psm1

@@ -101,7 +101,7 @@ $results.GetEnumerator()
 <details>
 <summary><b>Sync-GtGraphResourceDelta</b> - Synchronize Graph resources using delta queries with persistent state tracking</summary>
 
-For additional details and examples, check out my blog post [Microsoft Graph Delta Query in PowerShell](https://alflokken.github.io/posts/2026-18-02-graph-delta-queries/).
+For additional details and examples, check out my blog post [Microsoft Graph Delta Query in PowerShell](https://alflokken.github.io/posts/graph-delta-queries/).
 
 ```powershell
 $syncParams = @{

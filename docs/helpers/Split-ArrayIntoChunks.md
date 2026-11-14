@@ -31,7 +31,7 @@ Splits user array into batches of 20.
 
 ### EXAMPLE 2
 ```
-$items | chunk -ChunkSize 100
+chunk -Enumerable $items -ChunkSize 100
 ```
 
 Uses alias to split items into batches of 100.
@@ -40,6 +40,7 @@ Uses alias to split items into batches of 100.
 
 ### -Enumerable
 The array to split.
+Does not accept pipeline input.
 
 ```yaml
 Type: Array
@@ -73,7 +74,7 @@ Accept wildcard characters: False
 
 ## OUTPUTS
 
-### Array of arrays, each containing up to ChunkSize items.
+### Array of arrays, each containing up to ChunkSize items. Always returned as an array, even for a single chunk.
 ## NOTES
 
 ## RELATED LINKS

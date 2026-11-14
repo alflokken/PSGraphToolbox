@@ -6,31 +6,56 @@ function Get-GtDirectoryRoleMemberReport {
     .DESCRIPTION
     Retrieves both active role assignments and PIM eligible roles from Entra ID.
     Resolves principal displayNames (users, groups, service principals) and role names.
+    Group assignments are expanded into the group's direct members (not nested groups), and the group entries are removed from the output.
+    Use -SkipGroupExpansion to keep the group entries as they are instead.
     Optionally includes PIM activation data from audit logs.
+
+    state is one of:
+    - active: activated through PIM (startDateTime/endDateTime from the activation)
+    - active (permanent): active assignment without a current PIM activation
+    - eligible: time-bound eligibility
+    - eligible (permanent): eligibility without an end date
 
     PIM activation data is retrieved from the directory audit logs (category: RoleManagement,
     activityDisplayName: Add member to role completed (PIM activation)). Microsoft retains
     these logs for 30 days by default, so activation history is limited to that window.
 
     Requires scopes: RoleManagement.Read.Directory, Directory.Read.All.
-    For PIM activations: AuditLog.Read.All.
+    Optional: AuditLog.Read.All (-IncludePimActivations).
 
     .PARAMETER IncludePimActivations
-    Include PIM activation statistics (last 30 days). Defaults to $true.
+    Adds recentPimActivations (number of PIM activations in the last 30 days) to eligible entries. Switch parameter, off by default;
+    without it the property is omitted.
 
-    .PARAMETER outputType
+    .PARAMETER SkipGroupExpansion
+    Keeps group assignments as group entries (memberType 'group') instead of expanding them into their members. Switch parameter, off by default.
+    No group membership requests are made. For group entries recentPimActivations is empty, as activations are logged for the activating user, not the group.
+
+    .PARAMETER OutputType
     Output format: PSObject or html. Defaults to html.
 
     .OUTPUTS
-    Array of PSObjects (PSObject mode) or HTML report file path (html mode).
+    PSObject mode: array of role member objects with principalId, roleDefinitionId, roleDisplayName, directoryScopeId ('/' for tenant-wide, otherwise e.g. an administrative unit; in html mode only shown when some assignment is scoped), principalDisplayName,
+    memberType (user, servicePrincipal, group, ... or 'user (via group: <group name>)'), userPrincipalName, startDateTime, endDateTime,
+    state and, with -IncludePimActivations, recentPimActivations. With -SkipGroupExpansion, group assignments are returned as memberType 'group'.
+    html mode: nothing is returned. Entries (without principalId and roleDefinitionId) are grouped by role and written to
+    .\PSGraphToolbox_DirectoryRoles_<yyyyMMdd_HHmmss>.html in the current directory, which is opened in the default browser.
 
     .EXAMPLE
     Get-GtDirectoryRoleMemberReport
-    Returns all role members with enriched data as HTML report.
+    Returns all role members with enriched data as HTML report, without PIM activation data.
 
     .EXAMPLE
-    Get-GtDirectoryRoleMemberReport -IncludePimActivations:$false -outputType PSObject
+    Get-GtDirectoryRoleMemberReport -OutputType PSObject
     Returns role assignments as PSObject array without PIM activation data.
+
+    .EXAMPLE
+    Get-GtDirectoryRoleMemberReport -IncludePimActivations -OutputType PSObject | Where-Object { $_.state -like "eligible*" -and $_.recentPimActivations -eq 0 }
+    Returns eligible role members that have not activated their role in the last 30 days.
+
+    .EXAMPLE
+    Get-GtDirectoryRoleMemberReport -SkipGroupExpansion -OutputType PSObject | Where-Object { $_.memberType -eq "group" }
+    Returns the groups that hold a directory role, without expanding them into their members.
 
     .LINK
     https://github.com/alflokken/PSGraphToolbox/blob/main/docs/reports/Get-GtDirectoryRoleMemberReport.md
@@ -38,129 +63,134 @@ function Get-GtDirectoryRoleMemberReport {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory = $false)]
-        [bool]$IncludePimActivations = $true,
+        [switch]$IncludePimActivations,
+
+        [Parameter(Mandatory = $false)]
+        [switch]$SkipGroupExpansion,
         
         [Parameter()]
         [ValidateSet("PSObject","html")]
-        $outputType = "html"
+        $OutputType = "html"
     )
+    #region graph requests
+    Write-GtVerbose "Retrieving role definition ids and names"
+    $roleDefinitionsById = Invoke-GtGraphRequest "roleManagement/directory/roleDefinitions" -select "id,displayName" -Verbose:$false | ConvertTo-HashTable -keyProperty "id"
+    try { $roleDefinitionsById.Add("eb1d8c34-acf5-460d-8424-c1f1a6fbdb85", @{ displayName = "AdHoc License Administrator" }) } catch {}
+    try { $roleDefinitionsById.Add("d24aef57-1500-4070-84db-2666f29cf966", @{ displayName = "Modern Commerce Administrator" }) } catch {}
+    try { $roleDefinitionsById.Add("00cf5c54-4693-4f59-a0ac-ab79ef0a974d", @{ displayName = "Microsoft 365 Support Engineer" }) } catch {}
+    Write-GtVerbose "Retrieving active role assignments"
+    $activeAssignments = Invoke-GtGraphRequest "roleManagement/directory/roleAssignments" -select "principalId,roleDefinitionId,directoryScopeId" -Verbose:$false `
+        | Select-Object *, roleDisplayName, principalDisplayName, memberType, userPrincipalName, startDateTime, endDateTime,
+            @{N="state";E={"active"}}, 
+            @{N="recentPimActivations";E={0}}
 
-    # placeholders
-    $roles = @()
-    $displayNameArray = @()
+    Write-GtVerbose "Retrieving role eligibility assignments"
+    $eligibleAssignments = Invoke-GtGraphRequest "roleManagement/directory/roleEligibilitySchedules" -select "principalId,roleDefinitionId,directoryScopeId,memberType,scheduleInfo" -Verbose:$false |
+        Select-Object *, roleDisplayName, principalDisplayName, userPrincipalName,
+            @{N="state"; E={ if ($_.scheduleInfo.expiration.endDateTime) { "eligible" } else { "eligible (permanent)" } }},
+            @{N="startDateTime"; E={ $_.scheduleInfo.startDateTime }},
+            @{N="endDateTime";   E={ $_.scheduleInfo.expiration.endDateTime }},
+            @{N="recentPimActivations"; E={ 0 }} `
+            -ExcludeProperty scheduleInfo
 
-    Write-Verbose "Retrieving role definition ids and names"
-    $roleDefIds = Invoke-GtGraphRequest "roleManagement/directory/roleDefinitions" -select "id,displayName" -Verbose:$false | ConvertTo-HashTable -keyProperty "id"
-    $roleDefIds.Add("eb1d8c34-acf5-460d-8424-c1f1a6fbdb85", @{ displayName = "AdHoc License Administrator" })
-    $roleDefIds.Add("d24aef57-1500-4070-84db-2666f29cf966", @{ displayName = "Modern Commerce Administrator" })
+    Write-GtVerbose "Retrieving role assignment schedule instances"
+    $scheduleInstances = Invoke-GtGraphRequest "/roleManagement/directory/roleAssignmentScheduleInstances" -Filter "assignmentType eq 'Activated'" -select "principalId,roleDefinitionId,directoryScopeId,startDateTime,endDateTime" -Verbose:$false
+    #endregion graph requests
 
-    Write-Verbose "Retrieving role assignments and eligibilities"
-    $roles += Invoke-GtGraphRequest "roleManagement/directory/roleEligibilitySchedules" -select "principalId,roleDefinitionId,memberType" -Verbose:$false | Select-Object *, roleDisplayName, @{N="state";E={"eligible"}}, principalDisplayName, userPrincipalName, lastPimActivationDateTime, @{Name="pimActivationCount";Expression={0}}
-    $roles += Invoke-GtGraphRequest "roleManagement/directory/roleAssignments" -select "principalId,roleDefinitionId" -Verbose:$false | Select-Object *, roleDisplayName, @{N="state";E={"active"}}, principalDisplayName, memberType, userPrincipalName, lastPimActivationDateTime, @{Name="pimActivationCount";Expression={0}}
-
-    # resolve principal displayNames by trying to get all types (user, group, servicePrincipal)
-    # try users first
-    Write-Verbose "Attempting to resolve principal displayNames as users ($(($roles.principalId | Sort-Object -Unique).Count) unique ids)"
-    $displayNameArray += Get-GtGraphDirectoryObjectsByIds -type user -ids ($roles.principalId | Sort-Object -Unique) -Verbose:$false | Select-Object id, displayName, @{N="memberType";E={ "user" }}, userPrincipalName
-    
-    # resolve remaining ids as groupIds
-    $remainingIds = $roles.principalId | Where-Object { -not ($displayNameArray.id -contains $_) } | Sort-Object -Unique
-    Write-Verbose "Resolving remaining principal ids as groups ($($remainingIds.Count) ids)"
-    if ( $remainingIds ) {
-        $displayNameArray += Get-GtGraphDirectoryObjectsByIds -type group -ids $remainingIds -Verbose:$false | Select-Object id, displayName, @{N="memberType";E={ "group" }}, userPrincipalName
-    }
-    
-    # resolve servicePrincipals (remaining ids)
-    $spnIds = $roles.principalId | Where-Object { -not ($displayNameArray.id -contains $_) } | Sort-Object -Unique
-    Write-Verbose "Resolving remaining principal ids as service principals ($($spnIds.Count) ids)"
-    if ( $spnIds ) {
-        $spnRequests = @()
-        foreach ( $spnId in $spnIds ) {
-            $spnRequests += @{
-                id = $spnId
-                method = "GET"
-                url = "servicePrincipals/$($spnId)?`$select=id,displayName"
-            }
+    Write-GtVerbose "Populating active assignments with start/end dates from schedule instances"
+    foreach ( $assignment in $activeAssignments ) {
+        $scheduleInstance = $scheduleInstances | Where-Object { $_.principalId -eq $assignment.principalId -and $_.roleDefinitionId -eq $assignment.roleDefinitionId -and $_.directoryScopeId -eq $assignment.directoryScopeId }
+        if ( $scheduleInstance ) {
+            $assignment.startDateTime = $scheduleInstance.startDateTime
+            $assignment.endDateTime = $scheduleInstance.endDateTime
         }
-        $spnDisplayNames = Invoke-GtGraphBatchRequest -requests $spnRequests -Verbose:$false
-        $displayNameArray += $spnDisplayNames.GetEnumerator() | Select-Object -ExpandProperty value | Select-Object id, displayName, @{N="memberType";E={ "servicePrincipal" }}, userPrincipalName
+        else { $assignment.state = "active (permanent)" }
     }
 
-    # finalize displayName hashtable
-    $displayNameHt = $displayNameArray | ConvertTo-HashTable -keyProperty "id"
+    # combine eligible and active assignments into a single collection for processing
+    $roles = @($eligibleAssignments) + @($activeAssignments)
+
+    # resolve principal displayNames for all roles
+    $principalsById = Get-GtGraphDirectoryObjectsByIds -Type directoryObject -Ids ($roles.principalId | Sort-Object -Unique) | ConvertTo-Hashtable
 
     # enrich role metadata
     foreach ( $role in $roles ) {
-        $role.roleDisplayName = $roleDefIds[$role.roleDefinitionId].displayName
-        $role.principalDisplayName = $displayNameHt[$role.principalId].displayName
-        $role.memberType = $displayNameHt[$role.principalId].memberType
-        $role.userPrincipalName = $displayNameHt[$role.principalId].userPrincipalName
+        $role.roleDisplayName = $roleDefinitionsById[$role.roleDefinitionId].displayName
+        $role.principalDisplayName = $principalsById[$role.principalId].displayName
+        $role.memberType = $principalsById[$role.principalId].'@odata.type' -replace '#microsoft.graph.'
+        $role.userPrincipalName = $principalsById[$role.principalId].userPrincipalName
+        if ( $role.startDateTime ) { $role.startDateTime = $role.startDateTime.ToLocalTime() }
+        if ( $role.endDateTime ) { $role.endDateTime = $role.endDateTime.ToLocalTime() }
     }
 
-    # expand group memberships
-    # cache group members to avoid duplicate API calls when same group has multiple role assignments
-    $groups = $roles | Where-Object { $_.memberType -eq "group" }
-    $uniqueGroupIds = $groups.principalId | Sort-Object -Unique
-    Write-Verbose "Expanding group memberships for $($groups.Count) role assignments ($($uniqueGroupIds.Count) unique groups)"
-    
-    $groupMembersCache = @{}
-    foreach ( $groupId in $uniqueGroupIds ) {
-        $groupName = $displayNameHt[$groupId].displayName
-        Write-Verbose "Fetching members for group: $groupName"
-        $groupMembersCache[$groupId] = Invoke-GtGraphRequest -resourcePath "groups/$groupId/members" -select "id,userPrincipalName,displayName" -Verbose:$false
-    }
-    
-    # expand using cached members
-    foreach ( $group in $groups ) {
-        $groupMembers = $groupMembersCache[$group.principalId]
-        foreach ( $member in $groupMembers ) {
-            $obj = New-Object -TypeName PSObject
-            $obj | Add-Member -NotePropertyName principalId -NotePropertyValue $member.id
-            $obj | Add-Member -NotePropertyName roleDefinitionId -NotePropertyValue $group.roleDefinitionId
-            $obj | Add-Member -NotePropertyName roleDisplayName -NotePropertyValue $group.roleDisplayName
-            $obj | Add-Member -NotePropertyName state -NotePropertyValue $group.state
-            $obj | Add-Member -NotePropertyName principalDisplayName -NotePropertyValue $member.displayName
-            $obj | Add-Member -NotePropertyName userPrincipalName -NotePropertyValue $member.userPrincipalName
-            $obj | Add-Member -NotePropertyName memberType -NotePropertyValue "user (via group: $($group.principalDisplayName))"
-            $obj | Add-Member -NotePropertyName lastPimActivationDateTime -NotePropertyValue $null
-            $obj | Add-Member -NotePropertyName pimActivationCount -NotePropertyValue 0
-            $roles += $obj
+    if ( $SkipGroupExpansion ) { Write-GtVerbose "Skipping group expansion, group assignments are kept as-is" }
+    else {
+        # expand group memberships
+        # cache group members to avoid duplicate API calls when same group has multiple role assignments
+        $groups = $roles | Where-Object { $_.memberType -eq "group" }
+        $uniqueGroupIds = $groups.principalId | Sort-Object -Unique
+        Write-GtVerbose "Expanding group memberships for $($groups.Count) role assignments ($($uniqueGroupIds.Count) unique groups)"
+
+        $groupMembersById = @{}
+        foreach ( $groupId in $uniqueGroupIds ) {
+            $groupName = $principalsById[$groupId].displayName
+            Write-Debug "Fetching members for group: $groupName"
+            $groupMembersById[$groupId] = Invoke-GtGraphRequest -resourcePath "groups/$groupId/members" -select "id,userPrincipalName,displayName" -Verbose:$false
         }
+        # expand each member from groups
+        foreach ( $group in $groups ) {
+            $groupMembers = $groupMembersById[$group.principalId]
+            foreach ( $member in $groupMembers ) {
+                $expandedMember = New-Object -TypeName PSObject
+                $expandedMember | Add-Member -NotePropertyName principalId -NotePropertyValue $member.id
+                $expandedMember | Add-Member -NotePropertyName roleDefinitionId -NotePropertyValue $group.roleDefinitionId
+                $expandedMember | Add-Member -NotePropertyName roleDisplayName -NotePropertyValue $group.roleDisplayName
+                $expandedMember | Add-Member -NotePropertyName directoryScopeId -NotePropertyValue $group.directoryScopeId
+                $expandedMember | Add-Member -NotePropertyName state -NotePropertyValue $group.state
+                $expandedMember | Add-Member -NotePropertyName principalDisplayName -NotePropertyValue $member.displayName
+                $expandedMember | Add-Member -NotePropertyName userPrincipalName -NotePropertyValue $member.userPrincipalName
+                $expandedMember | Add-Member -NotePropertyName memberType -NotePropertyValue "user (via group: $($group.principalDisplayName))"
+                $expandedMember | Add-Member -NotePropertyName recentPimActivations -NotePropertyValue 0
+                $roles += $expandedMember
+            }
+        }
+        # exclude original group entries
+        $roles = $roles | Where-Object { $_.memberType -ne "group" }
     }
-
-    # exclude original group entries
-    $roles = $roles | Where-Object { $_.memberType -ne "group" }
 
     # enrich eligible roles with PIM activation data
     if ( $IncludePimActivations ) {
-        $eligibleRoles = $roles | Where-Object { $_.state -eq "eligible" }
+        # -like matches both "eligible" and "eligible (permanent)" states
+        $eligibleRoles = $roles | Where-Object { $_.state -like "eligible*" }
 
         if ( $eligibleRoles ) {
-            Write-Verbose "Retrieving PIM activation audit logs for the last 30 days"
+            Write-GtVerbose "Retrieving PIM activation audit logs for the last 30 days"
             $pimActivations = Get-GtAuditLogsPimActivations -startDate (Get-Date).AddDays(-30) -Verbose:$false
 
             if ( $pimActivations ) {
-                Write-Verbose "Enriching eligible roles with PIM activation data"
-                # Group by principalId_roleDefinitionId
-                $pimActivationsHt = @{}; $pimActivations | Group-Object { "$($_.principalId)_$($_.roleId)" } | ForEach-Object { $pimActivationsHt[$_.Name] = $_.Group }
-                # Enrich eligible roles
+                Write-GtVerbose "Enriching eligible roles with PIM activation data"
+                # group activations by "principalId_roleId" so each eligible role can be matched
+                $pimActivationsByKey = @{}; $pimActivations | Group-Object { "$($_.principalId)_$($_.roleId)" } | ForEach-Object { $pimActivationsByKey[$_.Name] = $_.Group }
+                # enrich eligible roles
                 foreach ( $role in $eligibleRoles ) {
                     Write-Debug "Enriching role: $($role.principalDisplayName) - $($role.roleDisplayName)"
-                    $key = "$($role.principalId)_$($role.roleDefinitionId)"
-                    if ( $pimActivationsHt.ContainsKey($key) ) {
-                        $role.lastPimActivationDateTime = $pimActivationsHt[$key][0].activityDateTime
-                        $role.pimActivationCount = $pimActivationsHt[$key].Count
-                    }
+                    $principalRoleKey = "$($role.principalId)_$($role.roleDefinitionId)"
+                    if ( $pimActivationsByKey.ContainsKey($principalRoleKey) ) { $role.recentPimActivations = $pimActivationsByKey[$principalRoleKey].Count }
                 }
             }
+            # activations are logged for the activating user, not the group, so the count is not applicable to group entries
+            foreach ( $role in ($eligibleRoles | Where-Object { $_.memberType -eq "group" }) ) { $role.recentPimActivations = $null }
         }
         else { Write-Warning "No eligible roles found, skipping PIM activation enrichment" }
     }
 
     # final output
-    if ( $IncludePimActivations -eq $false ) { $roles = $roles | Select-Object * -ExcludeProperty lastPimActivationDateTime, pimActivationCount }
-    if ( $outputType -eq "html" ) { 
-        $roles = $roles | Select-Object principalDisplayName,* -ExcludeProperty principalId, roleDefinitionId -ErrorAction SilentlyContinue
+    if ( $IncludePimActivations -eq $false ) { $roles = $roles | Select-Object * -ExcludeProperty recentPimActivations }
+    if ( $OutputType -eq "html" ) { 
+        $exclude = @("principalId", "roleDefinitionId")
+        # only show the scope column when at least one assignment is scoped (e.g. to an administrative unit)
+        if ( -not ($roles | Where-Object { $_.directoryScopeId -and $_.directoryScopeId -ne "/" }) ) { $exclude += "directoryScopeId" }
+        $roles = $roles | Select-Object principalDisplayName,* -ExcludeProperty $exclude -ErrorAction SilentlyContinue
         $roles | Group-Object -Property roleDisplayName | Export-GtHtmlReport -ReportTitle "Entra ID Role Summary" -path ".\PSGraphToolbox_DirectoryRoles_$(Get-Date -Format 'yyyyMMdd_HHmmss').html" }
     else { return $roles }
 }

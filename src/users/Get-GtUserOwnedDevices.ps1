@@ -4,7 +4,7 @@ function Get-GtUserOwnedDevices {
     Get devices owned by a user.
 
     .DESCRIPTION
-    Retrieves devices registered to a user in Entra ID.
+    Retrieves registered devices owned by a user in Entra ID.
     Returns comprehensive device details including:
     - Device properties (displayName, deviceId, operatingSystem, etc.)
     - Enrollment and management status (isManaged, isCompliant, enrollmentType)
@@ -14,13 +14,20 @@ function Get-GtUserOwnedDevices {
     Requires scopes: User.Read.All, Device.Read.All.
 
     .PARAMETER inputObject
-    User object, UPN, or object ID.
+    User object, UPN, or object ID. Accepts pipeline input.
+
+    .OUTPUTS
+    Array of device objects with displayName, deviceId, id, operatingSystem, operatingSystemVersion, accountEnabled,
+    approximateLastSignInDateTime, createdDateTime, isManaged, isCompliant, profileType, registrationDateTime,
+    trustType, enrollmentType, managementType.
 
     .EXAMPLE
     Get-GtUserOwnedDevices "user@zavainc.com"
+    Returns the devices owned by the user, most recently used first.
 
     .EXAMPLE
     "user@zavainc.com" | ownedDevices
+    Uses the alias with pipeline input.
 
     .LINK
     https://github.com/alflokken/PSGraphToolbox/blob/main/docs/users/Get-GtUserOwnedDevices.md
@@ -32,9 +39,9 @@ function Get-GtUserOwnedDevices {
         [Object]$InputObject
     )
     process {
-        $id = idFromInputObject -inputObject $InputObject | Select-Object -ExpandProperty id
-        try { $response = Invoke-GtGraphRequest -resourcePath "users/$id/ownedDevices" -apiVersion "v1.0" -select "displayName,deviceId,id,operatingSystem,operatingSystemVersion,accountEnabled,approximateLastSignInDateTime,createdDateTime,isManaged,isCompliant,profileType,registrationDate,trustType,enrollmentType,managementType" -orderBy "approximateLastSignInDateTime desc" -additionalHeaders @{ ConsistencyLevel = "eventual" } }
+        $id = Get-IdFromInputObject -inputObject $InputObject | Select-Object -ExpandProperty id
+        try { $response = Invoke-GtGraphRequest -resourcePath "users/$id/ownedDevices" -apiVersion "v1.0" -select "displayName,deviceId,id,operatingSystem,operatingSystemVersion,accountEnabled,approximateLastSignInDateTime,createdDateTime,isManaged,isCompliant,profileType,registrationDateTime,trustType,enrollmentType,managementType" -orderBy "approximateLastSignInDateTime desc" -additionalHeaders @{ ConsistencyLevel = "eventual" } }
         catch { throw $_ }
-        return $response | Sort-Object approximateLastSignInDateTime -Descending | Select-Object displayName,deviceId,id,operatingSystem,operatingSystemVersion,accountEnabled,approximateLastSignInDateTime,createdDateTime,isManaged,isCompliant,profileType,registrationDate,trustType,enrollmentType,managementType
+        return $response | Sort-Object approximateLastSignInDateTime -Descending | Select-Object displayName,deviceId,id,operatingSystem,operatingSystemVersion,accountEnabled,approximateLastSignInDateTime,createdDateTime,isManaged,isCompliant,profileType,registrationDateTime,trustType,enrollmentType,managementType
     }
 }

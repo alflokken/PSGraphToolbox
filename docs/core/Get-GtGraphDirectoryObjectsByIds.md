@@ -17,9 +17,8 @@ Get-GtGraphDirectoryObjectsByIds [-Type] <Array> [-Ids] <Array> [<CommonParamete
 ```
 
 ## DESCRIPTION
-Retrieves multiple directory objects (users, groups, devices) by their object IDs
-in a single API call.
-Automatically chunks requests into batches of 1000 (API limit).
+Retrieves multiple directory objects by their object IDs using directoryObjects/getByIds.
+IDs are sent in chunks of 1000 (API limit), one POST request per chunk.
 
 More efficient than individual lookups when resolving many IDs.
 
@@ -41,11 +40,20 @@ Get-GtGraphDirectoryObjectsByIds -Type user,group -Ids $mixedIds
 
 Returns users and groups matching any of the specified IDs.
 
+### EXAMPLE 3
+```
+Get-GtGraphDirectoryObjectsByIds -Type directoryObject -Ids $principalIds | ConvertTo-HashTable
+```
+
+Resolves IDs of any object type and builds a lookup hashtable keyed by id.
+
 ## PARAMETERS
 
 ### -Type
-Object types to return: user, group, device.
-Accepts multiple values.
+Object types to return.
+Accepts multiple values: application, administrativeUnit, appRoleAssignment,
+directoryObject, directoryRole, device, group, orgContact, user, servicePrincipal.
+Use directoryObject on its own to return objects of any type (no type filter).
 
 ```yaml
 Type: Array
@@ -81,7 +89,8 @@ This cmdlet supports the common parameters: -Debug, -ErrorAction, -ErrorVariable
 
 ## OUTPUTS
 
-### Array of directory objects matching the specified IDs and types.
+### Array of directory objects (including @odata.type) matching the specified IDs and types.
+### IDs that are not found, or not of the requested type, are omitted. dateTime values are converted to local time.
 ## NOTES
 
 ## RELATED LINKS

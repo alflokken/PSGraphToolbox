@@ -17,8 +17,8 @@ Get-GtUserAuthenticationMethods [-InputObject] <Object> [[-MethodType] <String>]
 ```
 
 ## DESCRIPTION
-Retrieves registered authentication methods for a user.
-Supports filtering by method type (fido2, authenticator, etc.).
+Retrieves registered authentication methods for a user (beta endpoint).
+Supports filtering by method type (fido2Methods, microsoftAuthenticatorMethods, etc.).
 
 Requires scopes: UserAuthenticationMethod.Read.All.
 
@@ -29,15 +29,20 @@ Requires scopes: UserAuthenticationMethod.Read.All.
 Get-GtUserAuthenticationMethods "user@zavainc.com"
 ```
 
+Returns all registered authentication methods for the user.
+
 ### EXAMPLE 2
 ```
 "user@zavainc.com" | authMethods -methodType fido2Methods
 ```
 
+Returns only the user's FIDO2 security keys.
+
 ## PARAMETERS
 
 ### -InputObject
 User object, UPN, or object ID.
+Accepts pipeline input.
 
 ```yaml
 Type: Object
@@ -52,8 +57,11 @@ Accept wildcard characters: False
 ```
 
 ### -MethodType
-Filter by method type.
-Defaults to 'methods' (all).
+Method type to return.
+Valid values: fido2Methods, microsoftAuthenticatorMethods, emailMethods, passwordMethods,
+phoneMethods, platformCredentialMethods, softwareOathMethods, temporaryAccessPassMethods,
+windowsHelloForBusinessMethods, methods.
+Defaults to 'methods' (all registered methods).
 
 ```yaml
 Type: String
@@ -74,7 +82,7 @@ This cmdlet supports the common parameters: -Debug, -ErrorAction, -ErrorVariable
 
 ## OUTPUTS
 
-### Object containing array of authentication methods for the user.
+### Array of authentication method objects. With 'methods', each object includes @odata.type identifying the method type.
 ## NOTES
 
 ## RELATED LINKS

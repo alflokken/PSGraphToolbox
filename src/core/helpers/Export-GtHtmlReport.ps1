@@ -19,23 +19,31 @@ function Export-GtHtmlReport {
     When the object has two or more nested/complex properties. Rendered as cards with a responsive multi-column grid layout.
     Search shows entire card content without filtering rows.
 
+    The file is written with UTF-8 encoding (an existing file is overwritten), the path is written to the host and the
+    report is opened in the default browser unless -NoOpen is used. Nothing is returned.
+    If there are no objects, a warning is written and no file is created. 1000 or more objects trigger a warning that rendering may take a while.
+
     .PARAMETER InputObject
     The objects to render in the report. Accepts pipeline input.
 
     .PARAMETER TitleProperty
-    Property name to use as card titles. Defaults to 'displayName'.
+    Property name to use as card titles (card views). Defaults to 'displayName'.
+    If an object has no value for it, the first of name, id, objectId or appId is used.
 
     .PARAMETER Path
-    Output file path. Defaults to '.\Report.html'.
+    Output file path. Defaults to '.\report.html'.
 
     .PARAMETER ReportTitle
-    Title displayed at the top of the report.
+    Title displayed at the top of the report. Defaults to 'Object Report'.
 
     .PARAMETER NoOpen
     Suppress automatic opening of the report in default browser.
 
     .PARAMETER PageSize
-    Number of items per page. Defaults to 100.
+    Number of items per page (10-1000). Defaults to 100.
+
+    .OUTPUTS
+    None. The report is written to -Path.
 
     .EXAMPLE
     $users | Export-GtHtmlReport -Path ".\Users.html" -ReportTitle "User Report"
@@ -43,7 +51,7 @@ function Export-GtHtmlReport {
     Generates a table view report for flat user objects.
 
     .EXAMPLE
-    Get-GtConditionalAccessPolicies | Export-GtHtmlReport -TitleProperty displayName
+    Get-GtConditionalAccessPolicyReport -outputType PSObject | Export-GtHtmlReport -TitleProperty displayName
     
     Generates a card view report for complex policy objects.
 
@@ -53,7 +61,7 @@ function Export-GtHtmlReport {
     Generates a report with 50 items per page without opening it.
 
     .LINK
-    https://github.com/alflokken/PSGraphToolbox/blob/main/docs/reports/Export-GtHtmlReport.md
+    https://github.com/alflokken/PSGraphToolbox/blob/main/docs/helpers/Export-GtHtmlReport.md
     #>
     [CmdletBinding()]
     param(
@@ -95,29 +103,71 @@ function Export-GtHtmlReport {
         $rxOData = '@odata'
         
         function Encode-Html {
-            <# HTML encode text (CLM-safe, no method calls) #>
+            <#
+            .SYNOPSIS
+            HTML-encodes text (CLM-safe, no method calls).
+
+            .PARAMETER Text
+            The text to encode. Replaces &, <, >, " and '.
+
+            .EXAMPLE
+            Encode-Html "<b>"
+            Returns "&lt;b&gt;".
+            #>
             param([string]$Text)
             if (-not $Text) { return $Text }
             $Text -replace '&','&amp;' -replace '<','&lt;' -replace '>','&gt;' -replace '"','&quot;' -replace "'",'&#39;'
         }
 
         function Test-SimpleType {
-            <# Check if value is a simple/primitive type #>
+            <#
+            .SYNOPSIS
+            Checks if a value is a simple/primitive type.
+
+            .PARAMETER Value
+            The value to test (string, number, boolean, DateTime or Guid).
+
+            .EXAMPLE
+            Test-SimpleType "text"
+            Returns $true.
+            #>
             param($Value)
             $null -ne $Value -and $Value.PSTypeNames[0] -match $rxSimpleType
         }
 
         function Test-IsCollection {
-            <# Check if value is a collection/array #>
+            <#
+            .SYNOPSIS
+            Checks if a value is a collection/array.
+
+            .DESCRIPTION
+            In PS7+ every object (incl. PSCustomObject) exposes a .Count intrinsic property,
+            so .Count cannot be used to detect collections. IEnumerable (excluding string) is used instead.
+
+            .PARAMETER Value
+            The value to test.
+
+            .EXAMPLE
+            Test-IsCollection @(1, 2)
+            Returns $true.
+            #>
             param($Value)
             if ($null -eq $Value) { return $false }
-            $typeName = $Value.PSTypeNames[0]
-            ($typeName -match $rxCollection) -or 
-            ($null -ne $Value.Count -and $Value.Count -gt 0 -and $typeName -notmatch 'String')
+            $Value -is [System.Collections.IEnumerable] -and $Value -isnot [string]
         }
 
         function Test-FlatObject {
-            <# Check if object has only simple properties (for table view detection) #>
+            <#
+            .SYNOPSIS
+            Checks if an object has only simple properties (used for table view detection).
+
+            .PARAMETER Obj
+            The object to inspect. Null values and collections of simple types count as simple.
+
+            .EXAMPLE
+            Test-FlatObject (New-Object PSObject -Property @{ Name = "a"; Count = 1 })
+            Returns $true.
+            #>
             param($Obj)
             foreach ($prop in $Obj.PSObject.Properties) {
                 $val = $prop.Value
@@ -125,7 +175,8 @@ function Export-GtHtmlReport {
                 # Inline type check to avoid function call overhead in hot path
                 $typeName = $val.PSTypeNames[0]
                 if ($typeName -match $rxSimpleType) { continue }
-                if (($typeName -match $rxCollection) -or ($null -ne $val.Count -and $val.Count -gt 0 -and $typeName -notmatch 'String')) {
+                # PS7+: every object has .Count=1, so use IEnumerable to detect real collections
+                if ($val -is [System.Collections.IEnumerable] -and $val -isnot [string]) {
                     if ($val.Count -eq 0) { continue }
                     $firstItem = $val[0]
                     if ($null -ne $firstItem -and $firstItem.PSTypeNames[0] -match $rxSimpleType) { continue }
@@ -137,7 +188,21 @@ function Export-GtHtmlReport {
         }
 
         function Get-DisplayValue {
-            <# Get best display value from an object #>
+            <#
+            .SYNOPSIS
+            Gets the best display value from an object.
+
+            .DESCRIPTION
+            Returns the item itself for simple types, otherwise the first of displayName, name or id.
+            Falls back to an item count or the string representation.
+
+            .PARAMETER Item
+            The item to get a display value for.
+
+            .EXAMPLE
+            Get-DisplayValue (New-Object PSObject -Property @{ displayName = "Contoso" })
+            Returns "Contoso".
+            #>
             param($Item)
             if ($null -eq $Item) { return "-" }
             if (Test-SimpleType $Item) { return "$Item" }
@@ -149,7 +214,20 @@ function Export-GtHtmlReport {
         }
 
         function Format-TableValue {
-            <# Format value for table cell display #>
+            <#
+            .SYNOPSIS
+            Formats a value for table cell display.
+
+            .DESCRIPTION
+            Returns HTML-encoded text. DateTime values use dd.MM.yyyy HH:mm:ss, collections are comma-joined.
+
+            .PARAMETER Value
+            The value to format.
+
+            .EXAMPLE
+            Format-TableValue (Get-Date)
+            Returns the date formatted as dd.MM.yyyy HH:mm:ss.
+            #>
             param($Value)
             if ($null -eq $Value) { return "-" }
             if ($Value -is [DateTime]) { return Encode-Html ("{0:dd.MM.yyyy HH:mm:ss}" -f $Value) }
@@ -162,13 +240,40 @@ function Export-GtHtmlReport {
         }
 
         function New-Badge {
-            <# Create a badge HTML element #>
+            <#
+            .SYNOPSIS
+            Creates a Bootstrap badge HTML element.
+
+            .PARAMETER Text
+            The badge text (HTML-encoded).
+
+            .PARAMETER Class
+            Bootstrap classes for the badge. Defaults to 'bg-info text-dark'.
+
+            .EXAMPLE
+            New-Badge "Active" -Class "bg-success"
+            Returns a green badge span with the text "Active".
+            #>
             param([string]$Text, [string]$Class = 'bg-info text-dark')
             "<span class='badge $Class me-1'>$(Encode-Html $Text)</span>"
         }
 
         function Format-CollectionAsTable {
-            <# Format collection of complex objects as mini-table #>
+            <#
+            .SYNOPSIS
+            Formats a collection of complex objects as an HTML mini-table.
+
+            .DESCRIPTION
+            Columns are the simple-type properties of the items (@odata properties are skipped).
+            Returns an item-count badge if no simple-type columns exist.
+
+            .PARAMETER Collection
+            The collection of objects to render.
+
+            .EXAMPLE
+            Format-CollectionAsTable $user.memberOf
+            Returns an HTML table with one row per item.
+            #>
             param($Collection)
             
             # Get columns from first item's property names (not values) to ensure all columns are included
@@ -224,7 +329,23 @@ function Export-GtHtmlReport {
         }
 
         function Format-ObjectAsSection {
-            <# Format nested object as visual section (recursive) #>
+            <#
+            .SYNOPSIS
+            Formats a nested object as a visual HTML section (recursive).
+
+            .DESCRIPTION
+            Beyond a nesting depth of 2 the object is rendered as compact JSON.
+
+            .PARAMETER Obj
+            The nested object to render.
+
+            .PARAMETER Depth
+            Current recursion depth. Defaults to 0.
+
+            .EXAMPLE
+            Format-ObjectAsSection $policy.conditions
+            Returns an HTML section for the conditions object.
+            #>
             param($Obj, [int]$Depth = 0)
             
             if ($Depth -gt 2) { 
@@ -246,7 +367,7 @@ function Export-GtHtmlReport {
                     $displayVal = if ($val -is [DateTime]) { "{0:dd.MM.yyyy HH:mm:ss}" -f $val } else { "$val" }
                     "<div class='mb-1'><strong class='text-muted'>${propName}:</strong> $(New-Badge $displayVal)</div>"
                 }
-                elseif (($typeName -match $rxCollection) -or ($null -ne $val.Count -and $val.Count -gt 0 -and $typeName -notmatch 'String')) {
+                elseif ($val -is [System.Collections.IEnumerable] -and $val -isnot [string]) {
                     if ($val.Count -eq 0) { continue }
                     $firstItem = $val[0]
                     
@@ -273,7 +394,17 @@ function Export-GtHtmlReport {
         }
 
         function Format-BadgeValue {
-            <# Format value as badges for card display #>
+            <#
+            .SYNOPSIS
+            Formats a value as badges for card display.
+
+            .PARAMETER Value
+            The value to format. Null renders a muted placeholder, DateTime a formatted badge.
+
+            .EXAMPLE
+            Format-BadgeValue "Enabled"
+            Returns a badge element with the text "Enabled".
+            #>
             param($Value)
             if ($null -eq $Value) { return $Script:NullPlaceholder }
             
@@ -284,7 +415,7 @@ function Export-GtHtmlReport {
             $typeName = $Value.PSTypeNames[0]
             if ($typeName -match $rxSimpleType) { return New-Badge "$Value" }
             
-            if (($typeName -match $rxCollection) -or ($null -ne $Value.Count -and $Value.Count -gt 0 -and $typeName -notmatch 'String')) {
+            if ($Value -is [System.Collections.IEnumerable] -and $Value -isnot [string]) {
                 if ($Value.Count -eq 0) { return $Script:NullPlaceholder }
                 $firstItem = $Value[0]
                 if ($null -ne $firstItem -and $firstItem.PSTypeNames[0] -match $rxSimpleType) {
@@ -687,7 +818,7 @@ $tableViewJs
                     
                     $typeName = $val.PSTypeNames[0]
                     $isValSimple = $typeName -match $rxSimpleType
-                    $isCollection = ($typeName -match $rxCollection) -or ($null -ne $val.Count -and $val.Count -gt 0 -and $typeName -notmatch 'String')
+                    $isCollection = $val -is [System.Collections.IEnumerable] -and $val -isnot [string]
                     
                     $isSimple = $isValSimple -or ($isCollection -and $val.Count -gt 0 -and ($val[0].PSTypeNames[0] -match $rxSimpleType))
                     

@@ -10,10 +10,10 @@ function Get-GtTenantInformationByTenantId {
     Requires scopes: CrossTenantInformation.ReadBasic.All.
 
     .PARAMETER TenantId
-    The tenant ID (GUID) to look up.
+    The tenant ID (GUID) to look up. Accepts pipeline input.
 
     .OUTPUTS
-    PSObject with cross-tenant information: displayName, defaultDomain, federationBrandName, etc.
+    PSObject with tenantId, displayName, defaultDomainName and federationBrandName.
 
     .EXAMPLE
     Get-GtTenantInformationByTenantId "00000000-0000-0000-0000-000000000000"

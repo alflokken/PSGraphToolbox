@@ -17,7 +17,7 @@ Get-GtGroup [-InputObject] <Object> [[-AdditionalProperties] <String>] [<CommonP
 ```
 
 ## DESCRIPTION
-Retrieves a single Microsoft Entra ID group by object ID, displayName, or group object.
+Retrieves a Microsoft Entra ID group by object ID, displayName, or group object.
 Accepts pipeline input.
 Returns group properties (id, displayName, description, createdDateTime, groupTypes, mailEnabled, securityEnabled) by default.
 Additional properties can be requested via -AdditionalProperties.
@@ -32,7 +32,7 @@ Requires scopes: Group.Read.All
 Get-GtGroup "Sales Team"
 ```
 
-Returns the group with displayName 'Sales Team'.
+Returns the group(s) with displayName 'Sales Team'.
 
 ### EXAMPLE 2
 ```
@@ -51,8 +51,9 @@ Returns the group with additional property 'membershipRule'.
 ## PARAMETERS
 
 ### -InputObject
-Group object, displayName, or object ID.
+Group object (with id), displayName, or object ID.
 Accepts pipeline input.
+Alias: id.
 
 ```yaml
 Type: Object
@@ -89,8 +90,8 @@ This cmdlet supports the common parameters: -Debug, -ErrorAction, -ErrorVariable
 ## OUTPUTS
 
 ## NOTES
-If displayName is not unique, returns the first match.
-Throws if no group is found.
+displayName lookups use an exact (case-insensitive) match.
+If several groups share the displayName, all of them are returned.
 Additional properties must be valid Graph API group properties.
 
 ## RELATED LINKS

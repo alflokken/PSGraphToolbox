@@ -17,7 +17,8 @@ isValidGuid [[-guid] <String>] [<CommonParameters>]
 ```
 
 ## DESCRIPTION
-Tests whether a string matches the standard GUID format (xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx).
+Tests whether a string matches the standard GUID format (xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx), case-insensitive.
+GUIDs in braces or without hyphens return $false.
 Pipeline-enabled filter function for validating object IDs.
 
 ## EXAMPLES

@@ -262,3 +262,172 @@ Describe 'Get-IdFromInputObject' {
     }
 }
 #endregion
+
+#region ConvertTo-GtLocalDateTime Tests
+Describe 'ConvertTo-GtLocalDateTime' {
+
+    BeforeAll {
+        # Kind=Utc reference instant, plus its expected local-time equivalent.
+        # Computing both from the same expression keeps the assertions timezone-independent.
+        $script:utc = (Get-Date '2024-01-15T12:00:00Z').ToUniversalTime()
+        $script:expectedLocal = $script:utc.ToLocalTime()
+    }
+
+    Context 'Flat object' {
+        It 'Should convert a top-level dateTime property to local time' {
+            $obj = [PSCustomObject]@{ id = '1'; createdDateTime = $utc }
+            $result = ConvertTo-GtLocalDateTime -InputObject $obj
+            $result.createdDateTime | Should -Be $expectedLocal
+            $result.createdDateTime.Kind | Should -Be 'Local'
+        }
+
+        It 'Should leave non-dateTime properties unchanged' {
+            $obj = [PSCustomObject]@{ id = 'abc'; count = 5; enabled = $true; createdDateTime = $utc }
+            $result = ConvertTo-GtLocalDateTime -InputObject $obj
+            $result.id | Should -Be 'abc'
+            $result.count | Should -Be 5
+            $result.enabled | Should -BeTrue
+        }
+
+        It 'Should preserve the object structure (same property set)' {
+            $obj = [PSCustomObject]@{ id = '1'; displayName = 'Test'; createdDateTime = $utc }
+            $result = ConvertTo-GtLocalDateTime -InputObject $obj
+            ($result.PSObject.Properties.Name | Sort-Object) | Should -Be @('createdDateTime', 'displayName', 'id')
+        }
+    }
+
+    Context 'Nested objects' {
+        It 'Should convert dateTime values in nested objects at any depth' {
+            $obj = [PSCustomObject]@{
+                id = '1'
+                level1 = [PSCustomObject]@{
+                    level2 = [PSCustomObject]@{ lastSignIn = $utc }
+                }
+            }
+            $result = ConvertTo-GtLocalDateTime -InputObject $obj
+            $result.level1.level2.lastSignIn | Should -Be $expectedLocal
+            $result.level1.level2.lastSignIn.Kind | Should -Be 'Local'
+        }
+    }
+
+    Context 'Arrays' {
+        It 'Should convert dateTime properties for each object in an array' {
+            $arr = @(
+                [PSCustomObject]@{ id = '1'; createdDateTime = $utc },
+                [PSCustomObject]@{ id = '2'; createdDateTime = $utc }
+            )
+            $result = ConvertTo-GtLocalDateTime -InputObject $arr
+            $result[0].createdDateTime | Should -Be $expectedLocal
+            $result[1].createdDateTime | Should -Be $expectedLocal
+        }
+
+        It 'Should convert dateTime elements held directly in an array property' {
+            $obj = [PSCustomObject]@{ id = '1'; dates = @($utc, $utc) }
+            $result = ConvertTo-GtLocalDateTime -InputObject $obj
+            $result.dates[0] | Should -Be $expectedLocal
+            $result.dates[1] | Should -Be $expectedLocal
+            $result.dates[0].Kind | Should -Be 'Local'
+        }
+
+        It 'Should convert dateTime values in objects nested inside array elements' {
+            $arr = @(
+                [PSCustomObject]@{ id = '1'; methods = @([PSCustomObject]@{ createdDateTime = $utc }) }
+            )
+            $result = ConvertTo-GtLocalDateTime -InputObject $arr
+            $result[0].methods[0].createdDateTime | Should -Be $expectedLocal
+        }
+    }
+
+    Context 'Edge cases' {
+        It 'Should return $null for $null input' {
+            ConvertTo-GtLocalDateTime -InputObject $null | Should -BeNullOrEmpty
+        }
+
+        It 'Should convert a scalar dateTime' {
+            $result = ConvertTo-GtLocalDateTime -InputObject $utc
+            $result | Should -Be $expectedLocal
+            $result.Kind | Should -Be 'Local'
+        }
+
+        It 'Should return strings unchanged' {
+            ConvertTo-GtLocalDateTime -InputObject 'just-a-string' | Should -Be 'just-a-string'
+        }
+
+        It 'Should be idempotent (converting twice yields the same instant)' {
+            $obj = [PSCustomObject]@{ createdDateTime = $utc }
+            $once = ConvertTo-GtLocalDateTime -InputObject $obj
+            $twice = ConvertTo-GtLocalDateTime -InputObject $once
+            $twice.createdDateTime | Should -Be $expectedLocal
+            $twice.createdDateTime.Kind | Should -Be 'Local'
+        }
+
+        It 'Should treat a dateTime without a time zone (Unspecified) as UTC' {
+            $unspecified = [datetime]::SpecifyKind($utc, [DateTimeKind]::Unspecified)
+            $result = ConvertTo-GtLocalDateTime -InputObject ([PSCustomObject]@{ createdDateTime = $unspecified })
+            $result.createdDateTime | Should -Be $expectedLocal
+            $result.createdDateTime.Kind | Should -Be 'Local'
+        }
+
+        It 'Should not alter objects without dateTime values' {
+            $obj = [PSCustomObject]@{ id = '1'; name = 'no dates here'; nested = [PSCustomObject]@{ value = 42 } }
+            $result = ConvertTo-GtLocalDateTime -InputObject $obj
+            $result.id | Should -Be '1'
+            $result.nested.value | Should -Be 42
+        }
+    }
+
+    Context 'Hashtables' {
+        It 'Should convert dateTime values in a flat hashtable' {
+            $ht = @{ id = '1'; createdDateTime = $utc }
+            $result = ConvertTo-GtLocalDateTime -InputObject $ht
+            $result | Should -BeOfType [hashtable]
+            $result.createdDateTime | Should -Be $expectedLocal
+            $result.createdDateTime.Kind | Should -Be 'Local'
+            $result.id | Should -Be '1'
+        }
+
+        It 'Should convert dateTime values in nested hashtables and arrays of objects' {
+            $ht = @{
+                scheduleInfo = @{ startDateTime = $utc; expiration = @{ endDateTime = $utc } }
+                items = @([PSCustomObject]@{ createdDateTime = $utc }, @{ createdDateTime = $utc })
+            }
+            $null = ConvertTo-GtLocalDateTime -InputObject $ht
+            $ht.scheduleInfo.startDateTime.Kind | Should -Be 'Local'
+            $ht.scheduleInfo.expiration.endDateTime | Should -Be $expectedLocal
+            $ht.items[0].createdDateTime | Should -Be $expectedLocal
+            $ht.items[1].createdDateTime | Should -Be $expectedLocal
+        }
+
+        It 'Should convert values in a batch-shaped hashtable (id -> object/array)' {
+            $batch = @{
+                '1' = [PSCustomObject]@{ createdDateTime = $utc }
+                '2' = @([PSCustomObject]@{ createdDateTime = $utc })
+            }
+            $null = ConvertTo-GtLocalDateTime -InputObject $batch
+            $batch['1'].createdDateTime | Should -Be $expectedLocal
+            $batch['2'][0].createdDateTime | Should -Be $expectedLocal
+        }
+
+        It 'Should be idempotent for hashtables' {
+            $ht = @{ createdDateTime = $utc }
+            $null = ConvertTo-GtLocalDateTime -InputObject $ht
+            $null = ConvertTo-GtLocalDateTime -InputObject $ht
+            $ht.createdDateTime | Should -Be $expectedLocal
+            $ht.createdDateTime.Kind | Should -Be 'Local'
+        }
+    }
+
+    Context 'Pipeline input' {
+        It 'Should convert each object received from the pipeline' {
+            $objs = @(
+                [PSCustomObject]@{ id = '1'; createdDateTime = $utc },
+                [PSCustomObject]@{ id = '2'; createdDateTime = $utc }
+            )
+            $results = $objs | ConvertTo-GtLocalDateTime
+            $results | Should -HaveCount 2
+            $results[0].createdDateTime | Should -Be $expectedLocal
+            $results[1].createdDateTime | Should -Be $expectedLocal
+        }
+    }
+}
+#endregion

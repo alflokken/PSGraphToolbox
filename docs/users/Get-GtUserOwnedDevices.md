@@ -17,7 +17,7 @@ Get-GtUserOwnedDevices [-InputObject] <Object> [<CommonParameters>]
 ```
 
 ## DESCRIPTION
-Retrieves devices registered to a user in Entra ID.
+Retrieves registered devices owned by a user in Entra ID.
 Returns comprehensive device details including:
 - Device properties (displayName, deviceId, operatingSystem, etc.)
 - Enrollment and management status (isManaged, isCompliant, enrollmentType)
@@ -33,15 +33,20 @@ Requires scopes: User.Read.All, Device.Read.All.
 Get-GtUserOwnedDevices "user@zavainc.com"
 ```
 
+Returns the devices owned by the user, most recently used first.
+
 ### EXAMPLE 2
 ```
 "user@zavainc.com" | ownedDevices
 ```
 
+Uses the alias with pipeline input.
+
 ## PARAMETERS
 
 ### -InputObject
 User object, UPN, or object ID.
+Accepts pipeline input.
 
 ```yaml
 Type: Object
@@ -62,6 +67,9 @@ This cmdlet supports the common parameters: -Debug, -ErrorAction, -ErrorVariable
 
 ## OUTPUTS
 
+### Array of device objects with displayName, deviceId, id, operatingSystem, operatingSystemVersion, accountEnabled,
+### approximateLastSignInDateTime, createdDateTime, isManaged, isCompliant, profileType, registrationDateTime,
+### trustType, enrollmentType, managementType.
 ## NOTES
 
 ## RELATED LINKS

@@ -18,6 +18,10 @@ Get-GtUser [-InputObject] <Object> [-AdditionalProperties <String>] [<CommonPara
 
 ## DESCRIPTION
 Retrieves a single user from Entra ID by object ID or UPN.
+Returns id, displayName, userPrincipalName, accountEnabled, mobilePhone, createdDateTime and
+lastPasswordChangeDateTime, plus any -AdditionalProperties.
+Display names are not accepted (use Find-GtUser).
+Throws if the user is not found.
 
 Requires scopes: User.Read.All.
 
@@ -28,15 +32,20 @@ Requires scopes: User.Read.All.
 Get-GtUser "user@zavainc.com"
 ```
 
+Returns the user with the default properties.
+
 ### EXAMPLE 2
 ```
-"user@zavainc.com" | Get-GtUser
+"user@zavainc.com" | Get-GtUser -AdditionalProperties "department,jobTitle"
 ```
+
+Pipeline usage with extra properties.
 
 ## PARAMETERS
 
 ### -InputObject
-User object, UPN, or object ID.
+User object (id/userPrincipalName), UPN, or object ID.
+Accepts pipeline input.
 
 ```yaml
 Type: Object
@@ -51,7 +60,8 @@ Accept wildcard characters: False
 ```
 
 ### -AdditionalProperties
-Extra properties to include in results.
+Extra properties to include in results (comma-separated, e.g.
+"department,jobTitle").
 
 ```yaml
 Type: String

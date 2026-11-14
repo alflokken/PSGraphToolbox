@@ -17,8 +17,8 @@ Find-GtDevice [-SearchString] <String> [-AdditionalProperties <String>] [<Common
 ```
 
 ## DESCRIPTION
-Searches Entra ID devices by displayName (partial match).
-Returns basic device properties.
+Searches Entra ID devices by displayName ($search): matches words in displayName that start with the search string.
+Returns basic device properties, sorted by createdDateTime (newest first).
 
 Requires scopes: Device.Read.All.
 
@@ -29,11 +29,11 @@ Requires scopes: Device.Read.All.
 Find-GtDevice "DESKTOP"
 ```
 
-Searches for devices with 'DESKTOP' in displayName.
+Searches for devices with a word in displayName starting with 'DESKTOP'.
 
 ### EXAMPLE 2
 ```
-Find-GtDevice "WIN" -AdditionalProperties "manufacturer,model"
+Find-GtDevice "WIN" -AdditionalProperties "deviceOwnership,enrollmentProfileName"
 ```
 
 Includes additional device properties.
@@ -41,7 +41,7 @@ Includes additional device properties.
 ## PARAMETERS
 
 ### -SearchString
-The search string (min 3 chars) to match against device displayName.
+The search string (3-99 chars) to match against device displayName.
 
 ```yaml
 Type: String
@@ -56,7 +56,7 @@ Accept wildcard characters: False
 ```
 
 ### -AdditionalProperties
-Additional properties to include in the response.
+Additional comma-separated device properties to include in the response.
 
 ```yaml
 Type: String
@@ -77,7 +77,10 @@ This cmdlet supports the common parameters: -Debug, -ErrorAction, -ErrorVariable
 
 ## OUTPUTS
 
-### Array of device objects with synthetic deviceModel property combining manufacturer and model.
+### Array of device objects with id, deviceId, displayName, operatingSystem, operatingSystemVersion, accountEnabled,
+### approximateLastSignInDateTime, createdDateTime, isManaged, isCompliant, profileType, registrationDateTime, trustType,
+### enrollmentType, managementType, any -AdditionalProperties, and a synthetic deviceModel property
+### (manufacturer + model; the original manufacturer and model properties are removed).
 ## NOTES
 
 ## RELATED LINKS

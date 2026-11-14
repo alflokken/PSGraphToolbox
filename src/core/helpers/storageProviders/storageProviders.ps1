@@ -17,11 +17,15 @@ function Get-GtDeltaStateFromJsonFile {
     .OUTPUTS
     PSObject containing the delta state, or $null if file doesn't exist.
 
+    .EXAMPLE
+    Get-GtDeltaStateFromJsonFile -Path "C:\state\users-delta.json"
+    Returns the stored delta state, or $null on the first run.
+
     .LINK
     https://github.com/alflokken/PSGraphToolbox/blob/main/docs/storageProviders/Get-GtDeltaStateFromJsonFile.md
     #>
-    # Retrieve delta state from JSON file. Returns $null if file doesn't exist.
     param([string]$Path)
+    # Retrieve delta state from JSON file. Returns $null if file doesn't exist.
     if ( Test-Path $Path ) { return Get-Content $Path -raw -Encoding UTF8 | ConvertFrom-Json }
     return $null
 }
@@ -32,7 +36,7 @@ function Set-GtDeltaStateToJsonFile {
     Save delta state to a JSON file.
 
     .DESCRIPTION
-    Writes delta query state to a JSON file with UTF-8 encoding.
+    Writes delta query state to a JSON file (UTF-8, compressed, depth 10), overwriting any existing file.
     Used by Sync-GtGraphResourceDelta to persist state between runs.
 
     .PARAMETER Path
@@ -41,11 +45,15 @@ function Set-GtDeltaStateToJsonFile {
     .PARAMETER State
     PSObject containing the delta state to save.
 
+    .EXAMPLE
+    Set-GtDeltaStateToJsonFile -Path "C:\state\users-delta.json" -State $state
+    Saves the delta state to the file, overwriting any existing content.
+
     .LINK
     https://github.com/alflokken/PSGraphToolbox/blob/main/docs/storageProviders/Set-GtDeltaStateToJsonFile.md
     #>
-    # Write delta state to JSON file.
     param([string]$Path, [object]$state)
+    # Write delta state to JSON file.
     $state | ConvertTo-Json -Depth 10 -Compress | Out-File $Path -Force -Encoding utf8
 }
 
@@ -56,7 +64,8 @@ function Test-GtDeltaStateJsonFile {
 
     .DESCRIPTION
     Tests whether a delta state file exists at the specified path.
-    Used by Sync-GtGraphResourceDelta to validate state file presence.
+    Throws if the parent directory does not exist, or if the path has no directory part (e.g. 'state.json'; use '.\state.json').
+    Used by Sync-GtGraphResourceDelta to validate the storage path before syncing.
 
     .PARAMETER Path
     File path to check.
@@ -64,11 +73,15 @@ function Test-GtDeltaStateJsonFile {
     .OUTPUTS
     Boolean: $true if file exists, $false otherwise.
 
+    .EXAMPLE
+    Test-GtDeltaStateJsonFile -Path "C:\state\users-delta.json"
+    Returns $true if the state file exists. Throws if the parent directory does not exist.
+
     .LINK
     https://github.com/alflokken/PSGraphToolbox/blob/main/docs/storageProviders/Test-GtDeltaStateJsonFile.md
     #>
-    # Check if delta state file exists.
     param([string]$Path)
+    # Check if delta state file exists.
     $parent = Split-Path $Path -Parent
     if ( -not (Test-Path $parent) ) { throw "Directory $parent does not exist." }
     return Test-Path $Path

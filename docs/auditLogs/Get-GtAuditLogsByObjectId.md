@@ -2,8 +2,6 @@
 external help file: PsGraphToolbox-help.xml
 Module Name: PsGraphToolbox
 online version: https://github.com/alflokken/PSGraphToolbox/blob/main/docs/auditLogs/Get-GtAuditLogsByObjectId.md
-
-TODO: Improve. Output is ok for users and groups, not so much for policy, roles etc
 schema: 2.0.0
 ---
 
@@ -22,13 +20,19 @@ Get-GtAuditLogsByObjectId [-inputObject] <Object> [-startDate <DateTime>] [-raw]
 Retrieves directory audit logs where the specified object is either:
 - A target of the action (targetResources)
 - The initiator of the action (initiatedBy) (user only)
+A UPN is resolved to the object ID first.
+Results for all piped objects are combined
+and sorted by activityDateTime (newest first).
 
 The output is enriched with resolved friendly names:
-- Converts GUID references to displayName (groups, devices, etc.)
-- Adds dynamic properties for each target resource type (targetResourceUser, targetResourceGroup, etc.)
-- Converts timestamps to local time
+- initiatedBy is replaced by the initiating user's UPN, or the initiating app's displayName
+- A targetResource\<Type\> property is added for each target resource type (targetResourceUser, targetResourceGroup, etc.)
+with the target's UPN or displayName; multiple targets are separated by '; '
+- Group and device targets without a displayName are resolved by ID; other types keep the ID
+- Timestamps are in local time
 
 Requires scopes: AuditLog.Read.All.
+UPN input also needs User.Read.All; resolving group/device names needs Directory.Read.All.
 
 ## EXAMPLES
 
@@ -51,6 +55,7 @@ Returns audit logs from last 7 days for piped user object.
 ### -inputObject
 Object (user, group) or object ID to get audit logs for.
 Accepts GUID, UPN, or object with id/userPrincipalName property.
+Accepts pipeline input.
 
 ```yaml
 Type: Object
@@ -81,7 +86,7 @@ Accept wildcard characters: False
 ```
 
 ### -raw
-Return raw audit log objects without processing/enrichment.
+Return raw audit log objects (selected properties only) without enrichment or sorting.
 
 ```yaml
 Type: SwitchParameter
@@ -102,13 +107,11 @@ This cmdlet supports the common parameters: -Debug, -ErrorAction, -ErrorVariable
 
 ## OUTPUTS
 
+### Array of audit log objects with activityDateTime, activityDisplayName, result, targetResourceUser, targetResourceGroup,
+### initiatedBy, category, loggedByService, resultReason and any other targetResource<Type> properties.
 ## NOTES
 
 ## RELATED LINKS
 
-[https://github.com/alflokken/PSGraphToolbox/blob/main/docs/auditLogs/Get-GtAuditLogsByObjectId.md
-
-TODO: Improve. Output is ok for users and groups, not so much for policy, roles etc](https://github.com/alflokken/PSGraphToolbox/blob/main/docs/auditLogs/Get-GtAuditLogsByObjectId.md
-
-TODO: Improve. Output is ok for users and groups, not so much for policy, roles etc)
+[https://github.com/alflokken/PSGraphToolbox/blob/main/docs/auditLogs/Get-GtAuditLogsByObjectId.md](https://github.com/alflokken/PSGraphToolbox/blob/main/docs/auditLogs/Get-GtAuditLogsByObjectId.md)
 

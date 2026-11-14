@@ -17,8 +17,14 @@ ConvertTo-HashTable [-inputObject] <Object[]> [[-keyProperty] <String>] [<Common
 ```
 
 ## DESCRIPTION
-Faster alternative to Group-Object -AsHashTable (~50x faster for large datasets).
-Creates a hashtable where each key is the value of the specified property.
+Creates a 1:1 lookup hashtable where each key is the value of the specified property and the value is a single object.
+Use only when keyProperty is unique (e.g.
+id, appId).
+
+NOT a drop-in replacement for Group-Object -AsHashTable: duplicate keys are silently overwritten (last object wins).
+For 1:many relations (e.g.
+role assignments by principalId), use Group-Object -Property \<name\> -AsHashTable -AsString.
+Much faster than Group-Object -AsHashTable (~50x for large datasets) when keys are unique.
 
 ## EXAMPLES
 
@@ -39,8 +45,9 @@ Creates hashtable keyed by appId.
 ## PARAMETERS
 
 ### -inputObject
-Array of objects to convert.
+Array of objects (or hashtables) to convert.
 Accepts pipeline input.
+Null or empty input returns an empty hashtable; items that are themselves $null are skipped.
 
 ```yaml
 Type: Object[]
@@ -78,6 +85,7 @@ This cmdlet supports the common parameters: -Debug, -ErrorAction, -ErrorVariable
 ## OUTPUTS
 
 ### Hashtable with keyProperty values as keys and full objects as values.
+### Throws if a non-null item has a missing or null keyProperty value. Duplicate keys: the last object wins.
 ## NOTES
 
 ## RELATED LINKS

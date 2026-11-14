@@ -7,23 +7,32 @@ function Get-GtAuditLogsByObjectId {
     Retrieves directory audit logs where the specified object is either:
     - A target of the action (targetResources)
     - The initiator of the action (initiatedBy) (user only)
+    A UPN is resolved to the object ID first. Results for all piped objects are combined
+    and sorted by activityDateTime (newest first).
 
     The output is enriched with resolved friendly names:
-    - Converts GUID references to displayName (groups, devices, etc.)
-    - Adds dynamic properties for each target resource type (targetResourceUser, targetResourceGroup, etc.)
-    - Converts timestamps to local time
+    - initiatedBy is replaced by the initiating user's UPN, or the initiating app's displayName
+    - A targetResource<Type> property is added for each target resource type (targetResourceUser, targetResourceGroup, etc.)
+    with the target's UPN or displayName; multiple targets are separated by '; '
+    - Group and device targets without a displayName are resolved by ID; other types keep the ID
+    - Timestamps are in local time
 
     Requires scopes: AuditLog.Read.All.
+    UPN input also needs User.Read.All; resolving group/device names needs Directory.Read.All.
 
     .PARAMETER inputObject
     Object (user, group) or object ID to get audit logs for.
-    Accepts GUID, UPN, or object with id/userPrincipalName property.
+    Accepts GUID, UPN, or object with id/userPrincipalName property. Accepts pipeline input.
 
     .PARAMETER startDate
     Start date for the query. Defaults to 30 days ago.
 
     .PARAMETER raw
-    Return raw audit log objects without processing/enrichment.
+    Return raw audit log objects (selected properties only) without enrichment or sorting.
+
+    .OUTPUTS
+    Array of audit log objects with activityDateTime, activityDisplayName, result, targetResourceUser, targetResourceGroup,
+    initiatedBy, category, loggedByService, resultReason and any other targetResource<Type> properties.
 
     .EXAMPLE
     Get-GtAuditLogsByObjectId "user@zavainc.com"
@@ -36,9 +45,7 @@ function Get-GtAuditLogsByObjectId {
     .LINK
     https://github.com/alflokken/PSGraphToolbox/blob/main/docs/auditLogs/Get-GtAuditLogsByObjectId.md
     #>
-    # TODO: Improve. Output is ok for users and groups, not so much for policy, roles etc
     [CmdletBinding()]
-    [Alias('auditLog')]
     param (
         [Parameter(Mandatory, ValueFromPipeline = $true, Position = 0)]
         [Object]$inputObject,
@@ -46,12 +53,13 @@ function Get-GtAuditLogsByObjectId {
         [datetime]$startDate = (Get-Date).AddDays(-30),
         [switch]$raw
     )
+    # TODO: Improve. Output is ok for users and groups, not so much for policy, roles etc
     begin { $auditLogs = @() }
     process {
-        $idFromInputObject = idFromInputObject -inputObject $inputObject
+        $idFromInputObject = Get-IdFromInputObject -inputObject $inputObject
         if ( $idFromInputObject.type -eq "upn" ) { $id = Invoke-GtGraphRequest -resourcePath "users/$($idFromInputObject.id)" -select "id" | Select-Object -ExpandProperty id }
         else { $id = $idFromInputObject.id }
-        $dateTime = $startDate.ToString("yyyy-MM-ddTHH:mm:ssZ")
+        $dateTime = Get-Date ($startDate.ToUniversalTime()) -UFormat "%Y-%m-%dT%H:%M:%SZ" 
         $auditLogs += Invoke-GtGraphRequest -apiVersion v1.0 -resourcePath "auditLogs/directoryAudits" `
             -filter "(targetResources/any(t: t/id eq '$id') or initiatedBy/user/id eq '$id') and activityDateTime ge $dateTime" `
             -select "activityDateTime,category,loggedByService,activityDisplayName,initiatedBy,targetResources,result,resultReason" -top 999
@@ -70,7 +78,6 @@ function Get-GtAuditLogsByObjectId {
         $auditLogs | Add-member -MemberType NoteProperty -Name "targetResourceUnknown" -Value @()
 
         foreach ( $entry in $auditLogs ) {
-            $entry.activityDateTime = (Get-Date $entry.activityDateTime).ToLocalTime()
             $entry.initiatedBy = if ( $entry.initiatedBy.user.userPrincipalName ) { $entry.initiatedBy.user.userPrincipalName } else { $entry.initiatedBy.app.displayName }
             
             # resolve target resources
@@ -99,7 +106,7 @@ function Get-GtAuditLogsByObjectId {
         # resolve unknown target resources 
         if ( $auditLogs.targetResourceUnknown -contains "targetResourceGroup" ) {
             $groupIds = $auditLogs | Where-Object { $_.targetResourceUnknown -contains "targetResourceGroup" } | Select-Object -ExpandProperty targetResourceGroup | Sort-Object -Unique 
-            Write-Verbose "Resolving $($groupIds.Count) group IDs..."
+            Write-GtVerbose "Resolving $($groupIds.Count) group IDs..."
             $groupIdCollection = Get-GtGraphDirectoryObjectsByIds -ids $groupIds -type group | ConvertTo-HashTable -keyProperty id
         }
         # cross-reference 
@@ -112,7 +119,7 @@ function Get-GtAuditLogsByObjectId {
         # devices
         if ( $auditLogs.targetResourceUnknown -contains "targetResourceDevice" ) {
             $deviceIds = $auditLogs | Where-Object { $_.targetResourceUnknown -contains "targetResourceDevice" } | Select-Object -ExpandProperty targetResourceDevice | Sort-Object -Unique 
-            Write-Verbose "Resolving $($deviceIds.Count) device IDs..."
+            Write-GtVerbose "Resolving $($deviceIds.Count) device IDs..."
             $deviceIdCollection = Get-GtGraphDirectoryObjectsByIds -ids $deviceIds -type device | ConvertTo-HashTable -keyProperty id
         }
         # cross-reference

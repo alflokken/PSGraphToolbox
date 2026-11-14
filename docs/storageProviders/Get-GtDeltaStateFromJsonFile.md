@@ -2,8 +2,6 @@
 external help file: PsGraphToolbox-help.xml
 Module Name: PsGraphToolbox
 online version: https://github.com/alflokken/PSGraphToolbox/blob/main/docs/storageProviders/Get-GtDeltaStateFromJsonFile.md
-
-Retrieve delta state from JSON file. Returns $null if file doesn't exist.
 schema: 2.0.0
 ---
 
@@ -25,12 +23,12 @@ Used by Sync-GtGraphResourceDelta to persist state between runs.
 
 ## EXAMPLES
 
-### Example 1
-```powershell
-PS C:\> {{ Add example code here }}
+### EXAMPLE 1
+```
+Get-GtDeltaStateFromJsonFile -Path "C:\state\users-delta.json"
 ```
 
-{{ Add example description here }}
+Returns the stored delta state, or $null on the first run.
 
 ## PARAMETERS
 
@@ -58,9 +56,5 @@ Accept wildcard characters: False
 
 ## RELATED LINKS
 
-[https://github.com/alflokken/PSGraphToolbox/blob/main/docs/storageProviders/Get-GtDeltaStateFromJsonFile.md
-
-Retrieve delta state from JSON file. Returns $null if file doesn't exist.](https://github.com/alflokken/PSGraphToolbox/blob/main/docs/storageProviders/Get-GtDeltaStateFromJsonFile.md
-
-Retrieve delta state from JSON file. Returns $null if file doesn't exist.)
+[https://github.com/alflokken/PSGraphToolbox/blob/main/docs/storageProviders/Get-GtDeltaStateFromJsonFile.md](https://github.com/alflokken/PSGraphToolbox/blob/main/docs/storageProviders/Get-GtDeltaStateFromJsonFile.md)
 

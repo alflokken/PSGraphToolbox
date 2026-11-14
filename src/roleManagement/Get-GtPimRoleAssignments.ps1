@@ -7,35 +7,41 @@ function Get-GtPimRoleAssignments {
     Retrieves Privileged Identity Management (PIM) directory role assignments
     for the specified user or the current signed-in user. Can retrieve active
     assignments, eligible assignments, or both.
+
+    Only roles assigned directly to the user are returned (roles received through group membership are not included).
+    Requires an existing Microsoft Graph connection (Connect-MgGraph); throws if not connected.
     
     Requires scopes: RoleEligibilitySchedule.Read.Directory, RoleAssignmentSchedule.Read.Directory, User.Read.All
 
     .PARAMETER Principal
-    The user to retrieve roles for. Accepts a user object, GUID, or userPrincipalName.
-    If not specified, retrieves roles for the current signed-in user.
+    The user to retrieve roles for. Accepts a user object, GUID, or userPrincipalName, also from the pipeline.
+    If not specified, retrieves roles for the signed-in account of the current Graph context
+    (delegated sign-in only; app-only connections have no account).
 
     .PARAMETER State
     Filter by assignment state. Valid values: All, Active, Eligible.
     Default: All (returns both active and eligible assignments).
 
     .OUTPUTS
-    Array of role assignment objects with properties: principalId, userPrincipalName, roleName, roleId, memberType, state, scheduleInfo.
+    Array of role assignment objects with properties: principalId, userPrincipalName, roleDisplayName, roleId,
+    state (eligible or active), scheduleEnd (end date/time, or 'NoExpiration'), Status,
+    MemberType (assignmentType for active roles, e.g. Assigned or Activated; memberType for eligible roles, e.g. Direct).
 
     .EXAMPLE
     Get-GtPimRoleAssignments
-    # Returns all role assignments (active and eligible) for the current user
+    Returns all role assignments (active and eligible) for the current user.
 
     .EXAMPLE
     Get-GtPimRoleAssignments -State Eligible
-    # Returns only eligible roles for the current user
+    Returns only eligible roles for the current user.
     
     .EXAMPLE
     Get-GtPimRoleAssignments -Principal "admin@zavainc.com" -State Active
-    # Returns only active roles for a specific user
+    Returns only active roles for a specific user.
     
     .EXAMPLE
     $user | Get-GtPimRoleAssignments
-    # Pipeline input with user object
+    Returns the role assignments of the piped user objects.
 
     .LINK
     https://github.com/alflokken/PSGraphToolbox/blob/main/docs/roleManagement/Get-GtPimRoleAssignments.md
@@ -50,11 +56,13 @@ function Get-GtPimRoleAssignments {
         [string]$State = "All"
     )
 
+    process {
     if (-not (Get-MgContext)) { throw "No Microsoft Graph context found. Please connect using Connect-MgGraph." }
 
     # Resolve principal to id and userPrincipalName
     if ($Principal) { $principalId = Get-IdFromInputObject -inputObject $Principal | Select-Object -ExpandProperty id }
     else { $principalId = Get-MgContext | Select-Object -ExpandProperty Account }
+    if (-not $principalId) { throw "No signed-in account in the current Graph context (app-only connection?); specify -Principal." }
 
     $resolvedPrincipal = Invoke-GtGraphRequest -resourcePath "users/$principalId" -Select "id,userPrincipalName" -Verbose:$false
 
@@ -77,7 +85,7 @@ function Get-GtPimRoleAssignments {
 
     $roles = @()
     foreach ($query in $queries) {
-        Write-Verbose "Retrieving $($query.State) role assignments for $($resolvedPrincipal.userPrincipalName)"
+        Write-GtVerbose "Retrieving $($query.State) role assignments for $($resolvedPrincipal.userPrincipalName)"
         $requestParams = @{
             resourcePath = $query.ResourcePath
             filter       = "principalId eq '$($resolvedPrincipal.id)'"
@@ -107,4 +115,5 @@ function Get-GtPimRoleAssignments {
     }
 
     return $roles
+    }
 }

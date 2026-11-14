@@ -38,7 +38,7 @@ function Get-GtTenantInfo {
     $obj | Add-Member -NotePropertyName createdDateTime -NotePropertyValue $org.createdDateTime
     $obj | Add-Member -NotePropertyName defaultDomain -NotePropertyValue (($domains | Where-Object { $_.isDefault }).id)
     $obj | Add-Member -NotePropertyName initialDomain -NotePropertyValue (($domains | Where-Object { $_.isInitial }).id)
-    $obj | Add-Member -NotePropertyName verifiedDomainCount -NotePropertyValue ($domains | Where-Object { $_.isVerified }).Count
+    $obj | Add-Member -NotePropertyName verifiedDomainCount -NotePropertyValue @($domains | Where-Object { $_.isVerified }).Count
     $obj | Add-Member -NotePropertyName domains -NotePropertyValue ($domains.id -join ", ")
     
     return $obj

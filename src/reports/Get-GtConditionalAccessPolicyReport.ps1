@@ -5,12 +5,16 @@ function Get-GtConditionalAccessPolicyReport {
     Get Conditional Access Policies with resolved friendly names.
 
     .DESCRIPTION
-    Retrieves all Conditional Access policies and resolves GUIDs to human-readable names:
-    - Users, groups, roles referenced in policy conditions
-    - Applications and service principals
-    - Named locations
+    Retrieves all Conditional Access policies (beta endpoint) and resolves GUIDs in the policy conditions to human-readable names:
+    - Users (as userPrincipalName), groups and directory roles
+    - Applications and client service principals
+    - Named locations (including "Multifactor authentication trusted IPs")
+    IDs that cannot be resolved are kept as-is.
 
-    Uses batch queries for efficient resolution of private/tenant-specific apps.
+    Well-known Microsoft application names are resolved from a public list downloaded from GitHub
+    (merill/microsoft-info, MicrosoftApps.json, 3-second timeout), so internet access is needed; if the download fails,
+    errors are written and those applications may be shown by appId. Other (tenant-specific) applications are resolved
+    with batch queries.
 
     Requires scopes: Policy.Read.All, Directory.Read.All.
 
@@ -18,11 +22,12 @@ function Get-GtConditionalAccessPolicyReport {
     Output format: PSObject or html. Defaults to html.
 
     .PARAMETER onlyEnabledPolicies
-    Only return policies with state "Enabled".
+    Only return policies with state "enabled" (report-only and disabled policies are excluded).
 
     .OUTPUTS
-    Array of policy objects (PSObject mode) or HTML report file path (html mode).
-    Each policy includes resolved displayNames for users, groups, roles, applications, and named locations.
+    PSObject mode: array of policy objects as returned by Graph, with the resolved names in place of GUIDs in conditions.
+    html mode: nothing is returned. The report is written to .\PSGraphToolbox_ConditionalAccessPolicies_<yyyyMMdd_HHmmss>.html
+    in the current directory and opened in the default browser.
 
     .EXAMPLE
     Get-GtConditionalAccessPolicyReport
@@ -33,12 +38,6 @@ function Get-GtConditionalAccessPolicyReport {
     Get-GtConditionalAccessPolicyReport -onlyEnabledPolicies -outputType PSObject
 
     Returns only enabled policies as PowerShell objects.
-
-    .INPUTS
-    None.
-
-    .OUTPUTS
-    System.Object[] (PSObject) or System.String (html report).
 
     .LINK
     https://github.com/alflokken/PSGraphToolbox/blob/main/docs/reports/Get-GtConditionalAccessPolicyReport.md
@@ -61,11 +60,11 @@ function Get-GtConditionalAccessPolicyReport {
     # Set-StrictMode -Off # properties like conditions.platforms.includePlatforms are not always present
 
     # resolve unique group ids (GUID)
-    [array]$groupIds = $caPolicies.conditions.users.includeGroups + $caPolicies.conditions.users.excludeGroups | Sort-Object -Unique | Where-Object { isValidGuid $_ }   
+    [array]$groupIds = @($caPolicies.conditions.users.includeGroups) + @($caPolicies.conditions.users.excludeGroups) | Sort-Object -Unique | Where-Object { isValidGuid $_ }   
     if ( $groupIds ) { $groupIdCollection = Get-GtGraphDirectoryObjectsByIds -ids $groupIds -type group | ConvertTo-HashTable -keyProperty id }
 
     # resolve unique user ids (GUID)
-    [array]$userIds = $caPolicies.conditions.users.includeUsers + $caPolicies.conditions.users.excludeUsers | Sort-Object -Unique  | Where-Object { isValidGuid $_}
+    [array]$userIds = @($caPolicies.conditions.users.includeUsers) + @($caPolicies.conditions.users.excludeUsers) | Sort-Object -Unique  | Where-Object { isValidGuid $_}
     if ( $userIds ) { $userIdCollection = Get-GtGraphDirectoryObjectsByIds -ids $userIds -type user | ConvertTo-HashTable -keyProperty id }
 
     # resolve roleIds (use directoryRoleTemplates to get all roles, not just activated ones)
@@ -81,7 +80,7 @@ function Get-GtConditionalAccessPolicyReport {
     }
 
     # applications
-    $applications = $caPolicies.conditions.applications.includeApplications + $caPolicies.conditions.applications.excludeApplications | Sort-Object -Unique
+    $applications = @($caPolicies.conditions.applications.includeApplications) + @($caPolicies.conditions.applications.excludeApplications) | Sort-Object -Unique
     
     # build tenantAppCollection hashTable
     if ( $applications ) {
@@ -122,7 +121,7 @@ function Get-GtConditionalAccessPolicyReport {
 
     # service principals
     if ($caPolicies.conditions.clientApplications.includeServicePrincipals -or $caPolicies.conditions.clientApplications.excludeServicePrincipals) {
-        [array]$spnIds = $caPolicies.conditions.clientApplications.includeServicePrincipals + $caPolicies.conditions.clientApplications.excludeServicePrincipals | Sort-Object -Unique | Where-Object { isValidGuid $_ }
+        [array]$spnIds = @($caPolicies.conditions.clientApplications.includeServicePrincipals) + @($caPolicies.conditions.clientApplications.excludeServicePrincipals) | Sort-Object -Unique | Where-Object { isValidGuid $_ }
         $spnRequests = $spnIds | ForEach-Object {
             @{
                 id = $_
@@ -130,7 +129,7 @@ function Get-GtConditionalAccessPolicyReport {
                 url = "servicePrincipals/$($_)?`$select=displayName"
             }
         }
-        $spnCollection = Invoke-GtGraphBatchRequest -requests $spnRequests
+        if ( $spnRequests ) { $spnCollection = Invoke-GtGraphBatchRequest -requests $spnRequests }
     }
 
     # Build role lookup hashtable (CA policies reference roles by roleTemplateId which equals id in directoryRoleTemplates)
@@ -143,12 +142,32 @@ function Get-GtConditionalAccessPolicyReport {
 
     # Helper function to resolve Ids to Names
     function Resolve-IdToName {
+        <#
+        .SYNOPSIS
+        Resolves IDs to display names using a lookup hashtable.
+
+        .DESCRIPTION
+        Returns the property value for each ID, or the ID itself when it cannot be resolved.
+
+        .PARAMETER Ids
+        IDs to resolve.
+
+        .PARAMETER Collection
+        Hashtable of objects keyed by ID.
+
+        .PARAMETER PropertyName
+        Property to return from each object. Defaults to displayName. If empty, the hashtable value itself is returned.
+
+        .EXAMPLE
+        Resolve-IdToName -Ids $policy.conditions.users.includeGroups -Collection $groupsById
+        Returns group display names (or the original IDs if not found).
+        #>
         param(
             [AllowEmptyCollection()][string[]]$Ids,
             [hashtable]$Collection,
             [string]$PropertyName = 'displayName'
         )
-        if (-not $Ids) { return $Ids }
+        if ( -not $Ids -or -not $Collection ) { return $Ids }
         $Ids.ForEach({
             $value = if ($PropertyName) { $Collection[$_].$PropertyName } else { $Collection[$_] }
             if ($value) { $value } else { $_ }

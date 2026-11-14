@@ -11,6 +11,7 @@
     - Get-IdFromInputObject
     - New-GtRequestUri
     - Invoke-GtGraphRequest (mocked)
+    - Invoke-GtGraphBatchRequest (mocked)
 .NOTES
     Run with: Invoke-Pester -Path .\tests\Core.Tests.ps1 -Output Detailed
 #>
@@ -465,6 +466,283 @@ Describe 'Invoke-GtGraphRequest' {
         It 'Should stop at pageLimit and warn' {
             $result = Invoke-GtGraphRequest -resourcePath 'users' -pageLimit 2 -WarningAction SilentlyContinue
             Should -Invoke Invoke-MgGraphRequest -Times 2 -ModuleName PsGraphToolbox
+        }
+    }
+
+    Context 'DateTime conversion (UTC to local)' {
+        BeforeAll {
+            # Kind=Utc reference instant and its expected local-time equivalent (timezone-independent).
+            $script:utcInstant = (Get-Date '2024-01-15T12:00:00Z').ToUniversalTime()
+            $script:expectedLocalInstant = $script:utcInstant.ToLocalTime()
+        }
+
+        It 'Should convert dateTime on a single-resource (flat) response to local time' {
+            Mock Invoke-MgGraphRequest {
+                return [PSCustomObject]@{
+                    id = '00000000-0000-0000-0000-000000000000'
+                    createdDateTime = (Get-Date '2024-01-15T12:00:00Z').ToUniversalTime()
+                }
+            } -ModuleName PsGraphToolbox
+            $result = Invoke-GtGraphRequest -resourcePath 'users/00000000-0000-0000-0000-000000000000'
+            $result.createdDateTime | Should -Be $expectedLocalInstant
+            $result.createdDateTime.Kind | Should -Be 'Local'
+        }
+
+        It 'Should convert dateTime values in a collection response to local time' {
+            Mock Invoke-MgGraphRequest {
+                return [PSCustomObject]@{
+                    value = @(
+                        [PSCustomObject]@{ id = '1'; createdDateTime = (Get-Date '2024-01-15T12:00:00Z').ToUniversalTime() },
+                        [PSCustomObject]@{ id = '2'; createdDateTime = (Get-Date '2024-01-15T12:00:00Z').ToUniversalTime() }
+                    )
+                }
+            } -ModuleName PsGraphToolbox
+            $result = Invoke-GtGraphRequest -resourcePath 'users'
+            $result[0].createdDateTime | Should -Be $expectedLocalInstant
+            $result[1].createdDateTime.Kind | Should -Be 'Local'
+        }
+
+        It 'Should convert nested dateTime values to local time' {
+            Mock Invoke-MgGraphRequest {
+                return [PSCustomObject]@{
+                    value = @(
+                        [PSCustomObject]@{
+                            id = '1'
+                            signInActivity = [PSCustomObject]@{ lastSignInDateTime = (Get-Date '2024-01-15T12:00:00Z').ToUniversalTime() }
+                        }
+                    )
+                }
+            } -ModuleName PsGraphToolbox
+            $result = Invoke-GtGraphRequest -resourcePath 'users'
+            $result[0].signInActivity.lastSignInDateTime | Should -Be $expectedLocalInstant
+            $result[0].signInActivity.lastSignInDateTime.Kind | Should -Be 'Local'
+        }
+
+        It 'Should convert dateTime values inside a delta response to local time' {
+            Mock Invoke-MgGraphRequest {
+                return [PSCustomObject]@{
+                    value = @([PSCustomObject]@{ id = '1'; createdDateTime = (Get-Date '2024-01-15T12:00:00Z').ToUniversalTime() })
+                    '@odata.deltaLink' = 'https://graph.microsoft.com/v1.0/users/delta?$deltatoken=xyz'
+                }
+            } -ModuleName PsGraphToolbox
+            $result = Invoke-GtGraphRequest -resourcePath 'users/delta'
+            $result.value[0].createdDateTime | Should -Be $expectedLocalInstant
+            $result.value[0].createdDateTime.Kind | Should -Be 'Local'
+        }
+    }
+}
+#endregion
+
+#region Invoke-GtGraphBatchRequest Tests (Mocked)
+Describe 'Invoke-GtGraphBatchRequest' {
+    BeforeAll {
+        Mock Get-MgContext { return @{ TenantId = 'test-tenant' } } -ModuleName PsGraphToolbox
+        Mock Connect-MgGraph { } -ModuleName PsGraphToolbox
+    }
+
+    Context 'Paged collection response (@odata.nextLink)' {
+        BeforeEach {
+            # $batch call: first page with nextLink
+            Mock Invoke-MgGraphRequest {
+                return [PSCustomObject]@{
+                    responses = @(
+                        [PSCustomObject]@{
+                            id     = 'paged'
+                            status = 200
+                            body   = [PSCustomObject]@{
+                                value = @([PSCustomObject]@{ id = '1' })
+                                '@odata.nextLink' = 'https://graph.microsoft.com/v1.0/users?$skiptoken=abc'
+                            }
+                        }
+                    )
+                }
+            } -ModuleName PsGraphToolbox -ParameterFilter { $Method -eq 'POST' }
+
+            # nextLink call: last page
+            Mock Invoke-MgGraphRequest {
+                return [PSCustomObject]@{ value = @([PSCustomObject]@{ id = '2' }) }
+            } -ModuleName PsGraphToolbox -ParameterFilter { $Uri -match 'skiptoken' }
+
+            Mock Write-Warning { } -ModuleName PsGraphToolbox
+
+            $requests = @( @{ id = 'paged'; method = 'GET'; url = 'users?$top=1' } )
+        }
+
+        It 'Should follow nextLink and combine pages' {
+            $results = Invoke-GtGraphBatchRequest -Requests $requests
+            $ids = @($results['paged']).id
+            $ids | Should -HaveCount 2
+            $ids[0] | Should -Be '1'
+            $ids[1] | Should -Be '2'
+            Should -Invoke Invoke-MgGraphRequest -Times 1 -Exactly -ModuleName PsGraphToolbox -ParameterFilter { $Uri -match 'skiptoken' }
+        }
+
+        It 'Should return only the first page and warn when PageLimit is 1' {
+            $results = Invoke-GtGraphBatchRequest -Requests $requests -PageLimit 1
+            @($results['paged']) | Should -HaveCount 1
+            Should -Invoke Invoke-MgGraphRequest -Times 0 -Exactly -ModuleName PsGraphToolbox -ParameterFilter { $Uri -match 'skiptoken' }
+            Should -Invoke Write-Warning -Times 1 -Exactly -ModuleName PsGraphToolbox
+        }
+
+        It 'Should return both pages without a warning when PageLimit is 2' {
+            $results = Invoke-GtGraphBatchRequest -Requests $requests -PageLimit 2
+            @($results['paged']).id | Should -Be @('1', '2')
+            Should -Invoke Invoke-MgGraphRequest -Times 1 -Exactly -ModuleName PsGraphToolbox -ParameterFilter { $Uri -match 'skiptoken' }
+            Should -Invoke Write-Warning -Times 0 -Exactly -ModuleName PsGraphToolbox
+        }
+
+        It 'Should forward request headers to the next page' {
+            $requests[0].headers = @{ ConsistencyLevel = 'eventual' }
+            $null = Invoke-GtGraphBatchRequest -Requests $requests
+            Should -Invoke Invoke-MgGraphRequest -Times 1 -Exactly -ModuleName PsGraphToolbox -ParameterFilter {
+                $Uri -match 'skiptoken' -and $Headers -and $Headers['ConsistencyLevel'] -eq 'eventual'
+            }
+        }
+    }
+
+    Context 'Single resource response' {
+        BeforeEach {
+            Mock Invoke-MgGraphRequest {
+                return [PSCustomObject]@{
+                    responses = @(
+                        [PSCustomObject]@{ id = 'single'; status = 200; body = [PSCustomObject]@{ id = '1'; displayName = 'User 1' } }
+                    )
+                }
+            } -ModuleName PsGraphToolbox -ParameterFilter { $Method -eq 'POST' }
+        }
+
+        It 'Should return the object unchanged' {
+            $results = Invoke-GtGraphBatchRequest -Requests @( @{ id = 'single'; method = 'GET'; url = 'users/1' } )
+            $results['single'].displayName | Should -Be 'User 1'
+        }
+    }
+
+    Context 'Failed and throttled sub-requests' {
+        BeforeEach {
+            Mock Start-Sleep { } -ModuleName PsGraphToolbox
+            Mock Get-Random { return 0 } -ModuleName PsGraphToolbox
+            Mock Write-Warning { } -ModuleName PsGraphToolbox
+            $global:GtBatchTestCalls = 0
+            $global:GtBatchTestStatus = $null
+            $global:GtBatchTestRetryAfter = $null
+            $requests = @(
+                @{ id = 'ok'; method = 'GET'; url = 'users/1' },
+                @{ id = 'bad'; method = 'GET'; url = 'users/2' }
+            )
+            # 'ok' always succeeds; 'bad' returns $GtBatchTestStatus (for the first $GtBatchTestFailCalls calls when set, else always)
+            Mock Invoke-MgGraphRequest {
+                $global:GtBatchTestCalls++
+                $sent = @(($Body | ConvertFrom-Json).requests)
+                $responses = foreach ( $r in $sent ) {
+                    if ( $r.id -eq 'ok' ) { [PSCustomObject]@{ id = 'ok'; status = 200; body = [PSCustomObject]@{ id = '1' } } }
+                    elseif ( $global:GtBatchTestFailCalls -and $global:GtBatchTestCalls -gt $global:GtBatchTestFailCalls ) { [PSCustomObject]@{ id = 'bad'; status = 200; body = [PSCustomObject]@{ id = '2' } } }
+                    else {
+                        $headers = if ( $global:GtBatchTestRetryAfter ) { [PSCustomObject]@{ 'retry-after' = $global:GtBatchTestRetryAfter } } else { [PSCustomObject]@{} }
+                        [PSCustomObject]@{ id = 'bad'; status = $global:GtBatchTestStatus; headers = $headers; body = [PSCustomObject]@{ error = [PSCustomObject]@{ code = 'Test_Code'; message = 'test message' } } }
+                    }
+                }
+                return [PSCustomObject]@{ responses = @($responses) }
+            } -ModuleName PsGraphToolbox -ParameterFilter { $Method -eq 'POST' }
+        }
+        AfterEach {
+            Remove-Variable GtBatchTestCalls, GtBatchTestStatus, GtBatchTestRetryAfter, GtBatchTestFailCalls -Scope Global -ErrorAction SilentlyContinue
+        }
+
+        It 'Should keep successful responses and report a non-retryable failure as a non-terminating error' {
+            $global:GtBatchTestStatus = 403
+            $results = Invoke-GtGraphBatchRequest -Requests $requests -ErrorAction SilentlyContinue -ErrorVariable batchErrors
+            $results['ok'].id | Should -Be '1'
+            $results.ContainsKey('bad') | Should -BeFalse
+            @($batchErrors) | Should -HaveCount 1
+            $batchErrors[0].TargetObject.id | Should -Be 'bad'
+            $batchErrors[0].FullyQualifiedErrorId | Should -Match 'GraphBatch\.403\.Test_Code'
+            $batchErrors[0].Exception.Message | Should -Match 'test message'
+            $global:GtBatchTestCalls | Should -Be 1
+        }
+
+        It 'Should throw when -ErrorAction Stop is used' {
+            $global:GtBatchTestStatus = 403
+            { Invoke-GtGraphBatchRequest -Requests $requests -ErrorAction Stop } | Should -Throw
+        }
+
+        It 'Should not retry a 500' {
+            $global:GtBatchTestStatus = 500
+            $null = Invoke-GtGraphBatchRequest -Requests $requests -ErrorAction SilentlyContinue -ErrorVariable batchErrors
+            @($batchErrors) | Should -HaveCount 1
+            $global:GtBatchTestCalls | Should -Be 1
+            Should -Invoke Start-Sleep -Times 0 -Exactly -ModuleName PsGraphToolbox
+        }
+
+        It 'Should retry a 503 and return the result without errors' {
+            $global:GtBatchTestStatus = 503
+            $global:GtBatchTestFailCalls = 1
+            $results = Invoke-GtGraphBatchRequest -Requests $requests -ErrorAction SilentlyContinue -ErrorVariable batchErrors
+            $results['bad'].id | Should -Be '2'
+            $results['ok'].id | Should -Be '1'
+            $batchErrors | Should -BeNullOrEmpty
+            $global:GtBatchTestCalls | Should -Be 2
+        }
+
+        It 'Should wait for the retry-after value when given' {
+            $global:GtBatchTestStatus = 429
+            $global:GtBatchTestRetryAfter = '3'
+            $global:GtBatchTestFailCalls = 1
+            $null = Invoke-GtGraphBatchRequest -Requests $requests
+            Should -Invoke Start-Sleep -Times 3 -Exactly -ModuleName PsGraphToolbox
+        }
+
+        It 'Should back off exponentially when retry-after is missing and stop at MaxRetries' {
+            $global:GtBatchTestStatus = 429
+            $results = Invoke-GtGraphBatchRequest -Requests $requests -MaxRetries 2 -ErrorAction SilentlyContinue -ErrorVariable batchErrors
+            $results.ContainsKey('bad') | Should -BeFalse
+            $results['ok'].id | Should -Be '1'
+            @($batchErrors) | Should -HaveCount 1
+            $batchErrors[0].TargetObject.id | Should -Be 'bad'
+            $batchErrors[0].FullyQualifiedErrorId | Should -Match 'ThrottledRetriesExhausted'
+            # rounds 0..2 run (3 batch calls); waits before rounds 1 and 2 are 2s and 4s, none after the last round
+            $global:GtBatchTestCalls | Should -Be 3
+            Should -Invoke Start-Sleep -Times 6 -Exactly -ModuleName PsGraphToolbox
+        }
+
+        It 'Should still warn on 404 without writing an error' {
+            $global:GtBatchTestStatus = 404
+            $results = Invoke-GtGraphBatchRequest -Requests $requests -ErrorAction SilentlyContinue -ErrorVariable batchErrors
+            $results.ContainsKey('bad') | Should -BeFalse
+            $batchErrors | Should -BeNullOrEmpty
+            Should -Invoke Write-Warning -Times 1 -Exactly -ModuleName PsGraphToolbox
+        }
+    }
+
+    Context 'Failing nextLink page' {
+        BeforeEach {
+            Mock Write-Warning { } -ModuleName PsGraphToolbox
+            Mock Invoke-MgGraphRequest {
+                return [PSCustomObject]@{
+                    responses = @(
+                        [PSCustomObject]@{ id = 'ok'; status = 200; body = [PSCustomObject]@{ id = '1' } },
+                        [PSCustomObject]@{
+                            id = 'paged'; status = 200
+                            body = [PSCustomObject]@{
+                                value = @([PSCustomObject]@{ id = '1' })
+                                '@odata.nextLink' = 'https://graph.microsoft.com/v1.0/users?$skiptoken=abc'
+                            }
+                        }
+                    )
+                }
+            } -ModuleName PsGraphToolbox -ParameterFilter { $Method -eq 'POST' }
+            Mock Invoke-MgGraphRequest { throw 'page failed' } -ModuleName PsGraphToolbox -ParameterFilter { $Uri -match 'skiptoken' }
+        }
+
+        It 'Should report the paged request as failed and keep the others' {
+            $requests = @( @{ id = 'ok'; method = 'GET'; url = 'users/1' }, @{ id = 'paged'; method = 'GET'; url = 'users?$top=1' } )
+            $results = Invoke-GtGraphBatchRequest -Requests $requests -ErrorAction SilentlyContinue -ErrorVariable allErrors
+            # ErrorVariable also holds errors caught inside the nested paging call
+            $batchErrors = @( $allErrors | Where-Object { $_.FullyQualifiedErrorId -like 'GraphBatch.*' } )
+            $results['ok'].id | Should -Be '1'
+            $results.ContainsKey('paged') | Should -BeFalse
+            $batchErrors | Should -HaveCount 1
+            $batchErrors[0].TargetObject.id | Should -Be 'paged'
+            $batchErrors[0].FullyQualifiedErrorId | Should -Match 'PageRetrievalFailed'
         }
     }
 }

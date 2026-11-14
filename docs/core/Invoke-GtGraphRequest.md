@@ -24,7 +24,11 @@ Simplifies Microsoft Graph API calls by handling:
 - OData query parameters as native PowerShell parameters
 - ConsistencyLevel header for $search and $count queries
 - Delta query support with deltaLink tracking
-- Automatic Graph connection if not already connected
+- Automatic Graph connection (Connect-MgGraph) if not already connected
+- Throttling retry policy, configured once per session (Set-MgRequestContext -RetryDelay 10 -MaxRetry 5)
+- Recursive conversion of all dateTime values from UTC to local time
+
+GET requests only; use Invoke-MgGraphRequest for POST/PATCH/DELETE.
 
 Requires scopes: Varies by resource path.
 
@@ -39,10 +43,10 @@ Returns all users with id and displayName.
 
 ### EXAMPLE 2
 ```
-Invoke-GtGraphRequest -ResourcePath "users" -Filter "accountEnabled eq true" -Top 10
+Invoke-GtGraphRequest -ResourcePath "users" -Filter "accountEnabled eq true" -Top 999
 ```
 
-Returns first 10 enabled users.
+Returns all enabled users, retrieved 999 per page.
 
 ### EXAMPLE 3
 ```
@@ -62,7 +66,9 @@ Uses beta API to get sign-in activity data.
 
 ### -ResourcePath
 The Graph API resource path (e.g., "users", "groups/xxx/members").
-API version prefix (v1.0/ or beta/) is stripped if included.
+A version prefix (v1.0/ or beta/) is removed; a "beta/" prefix (without a leading slash) also switches the request to the beta endpoint.
+A full https:// URL (e.g.
+a nextLink or deltaLink) is used as-is; the OData parameters are then ignored.
 
 ```yaml
 Type: String
@@ -156,6 +162,8 @@ Accept wildcard characters: False
 
 ### -Expand
 OData $expand expression for related entities.
+For relationships of directory objects (owners, memberOf, appRoleAssignments, ...), Graph typically returns at 
+most 20 expanded items and no nextLink; query the relationship directly for complete results.
 
 ```yaml
 Type: String
@@ -170,7 +178,9 @@ Accept wildcard characters: False
 ```
 
 ### -Top
-Maximum number of results per page.
+Page size ($top): maximum number of results per page.
+Paging still continues until all results
+(or -PageLimit pages) are retrieved, so this does not limit the total number of results.
 
 ```yaml
 Type: Int32
@@ -218,6 +228,7 @@ Accept wildcard characters: False
 ### -PageLimit
 Maximum number of pages to retrieve.
 Defaults to 100.
+A "Result truncated" warning is written whenever this number of pages is reached.
 
 ```yaml
 Type: Int32
@@ -233,6 +244,7 @@ Accept wildcard characters: False
 
 ### -AccessToken
 SecureString access token for authentication (optional).
+When supplied, Connect-MgGraph -AccessToken is called on every invocation, even if already connected.
 
 ```yaml
 Type: SecureString
@@ -253,9 +265,10 @@ This cmdlet supports the common parameters: -Debug, -ErrorAction, -ErrorVariable
 
 ## OUTPUTS
 
-### For single resources: PSObject with resource properties.
-### For collections: Array of PSObjects.
+### For single resources: PSObject with resource properties (@odata.* properties removed).
+### For collections: Array of PSObjects (items of all retrieved pages).
 ### For delta queries: PSObject with value, deltaLink, and dateRetrieved.
+### All dateTime values in the returned objects are converted from UTC to local time.
 ## NOTES
 
 ## RELATED LINKS

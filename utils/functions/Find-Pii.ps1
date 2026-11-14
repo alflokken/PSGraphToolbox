@@ -5,7 +5,7 @@ function Find-Pii {
     [cmdletbinding()]
     param (
         $Path = $PSScriptRoot,
-        [string[]]$Include = @("*.ps1", "*.psm1", "*.md"),
+        [string[]]$Include = @("*.ps1", "*.psm1", "*.md", "*.txt", "*.json", "*.csv"),
         [string[]]$Exclude = @("pii-patterns.txt"),
         $PiiPatternsPath = ".\pii-patterns.txt",
         [switch]$ThrowOnMatch

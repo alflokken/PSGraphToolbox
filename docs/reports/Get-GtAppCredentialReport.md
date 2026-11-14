@@ -1,11 +1,11 @@
 ---
 external help file: PsGraphToolbox-help.xml
 Module Name: PsGraphToolbox
-online version: https://github.com/alflokken/PSGraphToolbox/blob/main/docs/reports/Get-GtApplicationCredentialReport.md
+online version: https://github.com/alflokken/PSGraphToolbox/blob/main/docs/reports/Get-GtAppCredentialReport.md
 schema: 2.0.0
 ---
 
-# Get-GtApplicationCredentialReport
+# Get-GtAppCredentialReport
 
 ## SYNOPSIS
 Get application registration credentials with expiry information.
@@ -13,7 +13,7 @@ Get application registration credentials with expiry information.
 ## SYNTAX
 
 ```
-Get-GtApplicationCredentialReport [[-IncludeExpired] <Boolean>] [[-outputType] <String>] [<CommonParameters>]
+Get-GtAppCredentialReport [[-IncludeExpired] <Boolean>] [[-outputType] <String>] [<CommonParameters>]
 ```
 
 ## DESCRIPTION
@@ -23,11 +23,14 @@ Provides expiry tracking.
 
 Flattens credential arrays to show one row per credential with:
 - Application display name and app ID
-- Credential type (password/key)
+- Credential type ("Password (Client Secret)" or "Key (Certificate)")
 - Key/secret display name
 - Start/end dates and days until expiry
+- Application owners (display names, '; '-separated)
+Results are sorted by daysUntilExpiry (expired and soonest-expiring first).
 
 For SAML signing certificates on service principals, use Get-GtSamlCertificateReport.
+Federated identity credentials (workload identity federation) are not included.
 
 Requires scopes: Application.Read.All.
 
@@ -35,17 +38,17 @@ Requires scopes: Application.Read.All.
 
 ### EXAMPLE 1
 ```
-Get-GtApplicationCredentialReport
+Get-GtAppCredentialReport
 ```
 
 Generates HTML report of all application credentials.
 
 ### EXAMPLE 2
 ```
-Get-GtApplicationCredentialReport -IncludeExpired:$false
+Get-GtAppCredentialReport -IncludeExpired:$false -outputType PSObject
 ```
 
-Shows only active (non-expired) credentials.
+Returns only active (non-expired) credentials as objects.
 
 ## PARAMETERS
 
@@ -88,11 +91,14 @@ This cmdlet supports the common parameters: -Debug, -ErrorAction, -ErrorVariable
 
 ## OUTPUTS
 
-### Array of credential objects (PSObject mode) or HTML report file path (html mode).
-### Each object contains: appDisplayName, appId, credentialType, keyId, credentialDisplayName, startDateTime, endDateTime, daysUntilExpiry, isExpired, appOwners.
+### PSObject mode: array of credential objects with appDisplayName, appId, credentialType, keyId, credentialDisplayName,
+### startDateTime, endDateTime, daysUntilExpiry, isExpired, appOwners.
+### html mode: nothing is returned. The report is written to .\PSGraphToolbox_ApplicationCredentials_<yyyyMMdd_HHmmss>.html
+### in the current directory and opened in the default browser.
 ## NOTES
+Renamed from Get-GtApplicationCredentialReport in v2.0.0.
 
 ## RELATED LINKS
 
-[https://github.com/alflokken/PSGraphToolbox/blob/main/docs/reports/Get-GtApplicationCredentialReport.md](https://github.com/alflokken/PSGraphToolbox/blob/main/docs/reports/Get-GtApplicationCredentialReport.md)
+[https://github.com/alflokken/PSGraphToolbox/blob/main/docs/reports/Get-GtAppCredentialReport.md](https://github.com/alflokken/PSGraphToolbox/blob/main/docs/reports/Get-GtAppCredentialReport.md)
 

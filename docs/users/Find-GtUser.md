@@ -17,10 +17,15 @@ Find-GtUser [-SearchString] <String> [-AdditionalProperties <String>] [<CommonPa
 ```
 
 ## DESCRIPTION
-Finds users by partial displayName or exact UPN.
-Returns basic properties.
-Supports extra properties via -AdditionalProperties.
-Requires User.Read.All.
+Finds users by displayName or exact UPN (beta endpoint).
+- A string recognized as a UPN (see isValidUserPrincipalName) is matched exactly against userPrincipalName.
+- Any other string, including guest #EXT# UPNs, is a displayName search ($search): it matches words in
+  displayName that start with the search string (e.g.
+'john' matches 'John Doe' and 'Mary Johnson', not 'Littlejohn').
+Returns id, displayName, userPrincipalName, accountEnabled, mobilePhone, createdDateTime and
+lastPasswordChangeDateTime, plus any -AdditionalProperties.
+
+Requires scopes: User.Read.All.
 
 ## EXAMPLES
 
@@ -29,7 +34,7 @@ Requires User.Read.All.
 Find-GtUser "john"
 ```
 
-Searches for users with 'john' in displayName.
+Returns users with a word in displayName starting with 'john'.
 
 ### EXAMPLE 2
 ```
@@ -41,8 +46,8 @@ Returns exact match for UPN.
 ## PARAMETERS
 
 ### -SearchString
-Search string (min 3 chars).
-Partial match for displayName, exact for UPN.
+Search string (3-99 chars).
+Word-prefix match on displayName, exact match for UPN.
 
 ```yaml
 Type: String
@@ -57,7 +62,8 @@ Accept wildcard characters: False
 ```
 
 ### -AdditionalProperties
-Extra properties to include in results.
+Extra properties to include in results (comma-separated, e.g.
+"department,jobTitle").
 
 ```yaml
 Type: String

@@ -1,4 +1,4 @@
-function Get-GtApplicationCredentialReport {
+function Get-GtAppCredentialReport {
     <#
     .SYNOPSIS
     Get application registration credentials with expiry information.
@@ -9,11 +9,14 @@ function Get-GtApplicationCredentialReport {
     
     Flattens credential arrays to show one row per credential with:
     - Application display name and app ID
-    - Credential type (password/key)
+    - Credential type ("Password (Client Secret)" or "Key (Certificate)")
     - Key/secret display name
     - Start/end dates and days until expiry
+    - Application owners (display names, '; '-separated)
+    Results are sorted by daysUntilExpiry (expired and soonest-expiring first).
 
     For SAML signing certificates on service principals, use Get-GtSamlCertificateReport.
+    Federated identity credentials (workload identity federation) are not included.
 
     Requires scopes: Application.Read.All.
 
@@ -24,19 +27,24 @@ function Get-GtApplicationCredentialReport {
     Output format: PSObject or html. Defaults to html.
 
     .EXAMPLE
-    Get-GtApplicationCredentialReport
+    Get-GtAppCredentialReport
     Generates HTML report of all application credentials.
 
     .EXAMPLE
-    Get-GtApplicationCredentialReport -IncludeExpired:$false
-    Shows only active (non-expired) credentials.
+    Get-GtAppCredentialReport -IncludeExpired:$false -outputType PSObject
+    Returns only active (non-expired) credentials as objects.
 
     .OUTPUTS
-    Array of credential objects (PSObject mode) or HTML report file path (html mode).
-    Each object contains: appDisplayName, appId, credentialType, keyId, credentialDisplayName, startDateTime, endDateTime, daysUntilExpiry, isExpired, appOwners.
+    PSObject mode: array of credential objects with appDisplayName, appId, credentialType, keyId, credentialDisplayName,
+    startDateTime, endDateTime, daysUntilExpiry, isExpired, appOwners.
+    html mode: nothing is returned. The report is written to .\PSGraphToolbox_ApplicationCredentials_<yyyyMMdd_HHmmss>.html
+    in the current directory and opened in the default browser.
+
+    .NOTES
+    Renamed from Get-GtApplicationCredentialReport in v2.0.0.
 
     .LINK
-    https://github.com/alflokken/PSGraphToolbox/blob/main/docs/reports/Get-GtApplicationCredentialReport.md
+    https://github.com/alflokken/PSGraphToolbox/blob/main/docs/reports/Get-GtAppCredentialReport.md
     #>
     [CmdletBinding()]
     param(
@@ -57,10 +65,10 @@ function Get-GtApplicationCredentialReport {
         @{ Property = "keyCredentials";      Label = "Key (Certificate)" }
     )
 
-    Write-Verbose "Retrieving application credentials"
-    $apps = Invoke-GtGraphRequest -resourcePath "applications" -select "id,appId,displayName,keyCredentials,passwordCredentials" -expand "owners(`$select=displayName)" -Verbose:$false
-    
-    Write-Verbose "Processing $($apps.Count) applications"
+    Write-GtVerbose "Retrieving application credentials"
+    $apps = Invoke-GtGraphRequest -resourcePath "applications" -select "id,appId,displayName,keyCredentials,passwordCredentials" -expand "owners(`$select=displayName)" -PageLimit 999 -Verbose:$false
+
+    Write-GtVerbose "Processing $($apps.Count) applications"
     foreach ( $app in $apps ) {
         foreach ( $credType in $credentialTypes ) {
             $credentials = $app.($credType.Property)
@@ -70,7 +78,7 @@ function Get-GtApplicationCredentialReport {
 
                 $endDate = [DateTime]$cred.endDateTime
                 [int]$daysRemaining = ($endDate - $now).Days
-                $isExpired = $daysRemaining -lt 0
+                $isExpired = $endDate -lt $now
                 
                 $obj = New-Object -TypeName PSObject
                     $obj | Add-Member -NotePropertyName appDisplayName -NotePropertyValue $app.displayName
@@ -90,12 +98,12 @@ function Get-GtApplicationCredentialReport {
 
     # Apply filters
     if ( -not $IncludeExpired ) {
-        Write-Verbose "Filtering out expired credentials"
+        Write-GtVerbose "Filtering out expired credentials"
         $results = $results | Where-Object { -not $_.isExpired }
     }
 
     $results = $results | Sort-Object daysUntilExpiry
-    Write-Verbose "Found $($results.Count) credentials"
+    Write-GtVerbose "Found $($results.Count) credentials"
 
     if ( $outputType -eq "html" ) { $results | Export-GtHtmlReport -ReportTitle "Application Credentials" -path ".\PSGraphToolbox_ApplicationCredentials_$(Get-Date -Format 'yyyyMMdd_HHmmss').html" }
     else { return $results }

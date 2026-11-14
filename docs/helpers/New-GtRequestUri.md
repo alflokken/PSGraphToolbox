@@ -20,6 +20,9 @@ New-GtRequestUri [-resourcePath] <String> [[-filter] <String>] [[-select] <Strin
 
 ## DESCRIPTION
 Builds a properly formatted and escaped Graph API URI from individual OData parameters.
+filter, search, orderBy and expand values are URI-escaped.
+No headers are added
+(Invoke-GtGraphRequest adds ConsistencyLevel for search/count).
 Used internally by Invoke-GtGraphRequest.
 
 ## EXAMPLES
@@ -43,7 +46,9 @@ Returns: beta/groups?$select=id,displayName,membershipRule&$top=10&$count=true
 ## PARAMETERS
 
 ### -resourcePath
-The Graph API resource path (version prefix stripped if included).
+The Graph API resource path.
+Leading slashes are trimmed and a version prefix (v1.0/ or beta/) is removed;
+a "beta/" prefix also sets apiVersion to beta.
 
 ```yaml
 Type: String
@@ -74,6 +79,7 @@ Accept wildcard characters: False
 
 ### -select
 Comma-separated list of properties.
+Whitespace is removed and duplicates are dropped.
 
 ```yaml
 Type: String

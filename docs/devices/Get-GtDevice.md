@@ -8,25 +8,41 @@ schema: 2.0.0
 # Get-GtDevice
 
 ## SYNOPSIS
-Get a device by object ID or device ID.
+Get a device by object ID, device ID, or serial number.
 
 ## SYNTAX
 
+### ById
 ```
 Get-GtDevice [-InputObject] <Object> [-AdditionalProperties <String>] [<CommonParameters>]
 ```
 
+### BySerialNumber
+```
+Get-GtDevice -SerialNumber <String> [-AdditionalProperties <String>] [<CommonParameters>]
+```
+
 ## DESCRIPTION
-Retrieves a single device from Entra ID by object ID (id) or device ID (deviceId).
-Automatically detects which identifier type is provided.
+Retrieves a single device from Entra ID.
+
+ById: Looks up the device by object ID (id) or device ID (deviceId).
+Both identifiers are matched in a single query, so either can be supplied.
+
+BySerialNumber: Entra ID devices do not expose a serial number, so the serial is first
+resolved via Intune (deviceManagement/managedDevices) to its azureADDeviceId, which is then
+used for the Entra ID lookup.
+If multiple managed devices share the serial number, the most
+recently synced one is used and a warning is written.
 
 The output is enriched with additional data:
 - Includes registered owners (resolved as comma-separated userPrincipalNames)
-- Adds group membership names
+- Adds group membership names (memberOf displayNames)
 - Provides synthetic deviceModel property (manufacturer + model)
 - Excludes original manufacturer and model properties
+Throws if no device is found.
 
 Requires scopes: Device.Read.All.
+BySerialNumber additionally requires: DeviceManagementManagedDevices.Read.All.
 
 ## EXAMPLES
 
@@ -46,7 +62,14 @@ Accepts device object from pipeline.
 
 ### EXAMPLE 3
 ```
-Get-GtDevice "a1b2c3d4-e5f6-7890-abcd-ef1234567890" -AdditionalProperties "manufacturer,model"
+Get-GtDevice -SerialNumber "5CG1234XYZ"
+```
+
+Resolves the serial number via Intune and retrieves the corresponding Entra ID device.
+
+### EXAMPLE 4
+```
+Get-GtDevice "a1b2c3d4-e5f6-7890-abcd-ef1234567890" -AdditionalProperties "deviceOwnership,enrollmentProfileName"
 ```
 
 Includes additional device properties.
@@ -54,11 +77,12 @@ Includes additional device properties.
 ## PARAMETERS
 
 ### -InputObject
-Device object, object ID (id), or device ID (deviceId).
+Device object (with id or deviceId property), object ID (id), or device ID (deviceId).
+Accepts pipeline input.
 
 ```yaml
 Type: Object
-Parameter Sets: (All)
+Parameter Sets: ById
 Aliases:
 
 Required: True
@@ -68,8 +92,24 @@ Accept pipeline input: True (ByValue)
 Accept wildcard characters: False
 ```
 
+### -SerialNumber
+Hardware serial number of an Intune managed device (exact match).
+The device must be linked to Entra ID (have an azureADDeviceId).
+
+```yaml
+Type: String
+Parameter Sets: BySerialNumber
+Aliases:
+
+Required: True
+Position: Named
+Default value: None
+Accept pipeline input: False
+Accept wildcard characters: False
+```
+
 ### -AdditionalProperties
-Additional properties to include in the response.
+Comma-separated list of additional device properties to include in the response (no spaces).
 
 ```yaml
 Type: String

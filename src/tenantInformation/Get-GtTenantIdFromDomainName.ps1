@@ -5,10 +5,11 @@ function Get-GtTenantIdFromDomainName {
 
     .DESCRIPTION
     Looks up the Entra ID tenant ID for a domain using the public
-    OpenID Connect discovery endpoint. Works without authentication.
+    OpenID Connect discovery endpoint (login.windows.net). Works without authentication.
+    Throws if the domain is not found.
 
     .PARAMETER domainName
-    Domain name to look up (e.g., "zavainc.com").
+    Domain name to look up (e.g., "zavainc.com"). Accepts pipeline input.
 
     .OUTPUTS
     PSObject with domainName and tenantId.

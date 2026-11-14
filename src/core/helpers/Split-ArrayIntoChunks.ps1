@@ -8,20 +8,20 @@ function Split-ArrayIntoChunks {
     Used for batch processing (e.g., Graph API batch limit of 20).
 
     .PARAMETER Enumerable
-    The array to split.
+    The array to split. Does not accept pipeline input.
 
     .PARAMETER ChunkSize
     Maximum items per chunk. Defaults to 20.
 
     .OUTPUTS
-    Array of arrays, each containing up to ChunkSize items.
+    Array of arrays, each containing up to ChunkSize items. Always returned as an array, even for a single chunk.
 
     .EXAMPLE
     Split-ArrayIntoChunks -Enumerable $users -ChunkSize 20
     Splits user array into batches of 20.
 
     .EXAMPLE
-    $items | chunk -ChunkSize 100
+    chunk -Enumerable $items -ChunkSize 100
     Uses alias to split items into batches of 100.
 
     .LINK

@@ -5,16 +5,19 @@ function New-GtRequestUri {
 
     .DESCRIPTION
     Builds a properly formatted and escaped Graph API URI from individual OData parameters.
+    filter, search, orderBy and expand values are URI-escaped. No headers are added
+    (Invoke-GtGraphRequest adds ConsistencyLevel for search/count).
     Used internally by Invoke-GtGraphRequest.
 
     .PARAMETER resourcePath
-    The Graph API resource path (version prefix stripped if included).
+    The Graph API resource path. Leading slashes are trimmed and a version prefix (v1.0/ or beta/) is removed;
+    a "beta/" prefix also sets apiVersion to beta.
 
     .PARAMETER filter
     OData $filter expression.
 
     .PARAMETER select
-    Comma-separated list of properties.
+    Comma-separated list of properties. Whitespace is removed and duplicates are dropped.
 
     .PARAMETER search
     OData $search expression.
@@ -69,6 +72,7 @@ function New-GtRequestUri {
         [ValidateSet("v1.0", "beta")]
         [string]$apiVersion = "v1.0"
     )
+    $resourcePath = $resourcePath -replace '^/+',''  # leading slashes would hide the version prefix and produce "v1.0//..."
     if ( $resourcePath -match '^beta/' -and $apiVersion -eq 'v1.0' ) { Write-Debug "Resource path indicates 'beta' version, but apiVersion is set to 'v1.0'. Overriding apiVersion to 'beta'."; $apiVersion = "beta" }
     $resourcePath = $resourcePath -replace '^(.*v1\.0|.*beta)/',''  # remove version prefix if included in the resourcePath
 
@@ -81,7 +85,11 @@ function New-GtRequestUri {
     if ( $count )    { $query += "`$count=true" }                                   # Include result count; requires ConsistencyLevel header
     if ( $expand )   { $query += "`$expand=" + [uri]::EscapeDataString($expand) }   # Expand related entities
     
-    # return constructed URI
-    if ($query)    { return "$apiVersion/$resourcePath" + "?" + ($query -join '&') }
-    else           { return "$apiVersion/$resourcePath" }
+    # construct and return URI
+    $uri = "$apiVersion/$resourcePath"
+    if ( $query ) {
+        $separator = if ( $uri -match '\?' ) { '&' } else { '?' }
+        $uri += $separator + ($query -join '&')
+    }
+    return $uri
 }

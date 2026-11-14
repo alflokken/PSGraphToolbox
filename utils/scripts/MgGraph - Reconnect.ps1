@@ -7,9 +7,18 @@ These access tokens are served without re-validating against Azure AD. Disconnec
 
 Using ContextScope Process bypasses persistent Token Broker cache, forcing fresh token acquisition from Azure AD with current role claims.
 #>
-
-Disconnect-MgGraph -ErrorAction SilentlyContinue | Out-Null
-Connect-MgGraph -ContextScope Process -NoWelcome
+function Reset-MgGraphConnection {
+    $mgContext = Disconnect-MgGraph -ErrorAction SilentlyContinue
+    $params = @{
+        ContextScope = 'Process'
+        NoWelcome    = $true
+    }
+    if ( $mgContext ) {
+        $params.ClientId = $mgContext.ClientId
+        $params.TenantId = $mgContext.TenantId
+    }
+    Connect-MgGraph @params
+    write-host -ForegroundColor Green "Graph connection reset with fresh token."
+}
 #$newToken = Invoke-GraphRequest -Uri "/v1.0/me" -OutputType HttpResponseMessage
 #Connect-MgGraph -AccessToken ($newToken.RequestMessage.Headers.Authorization.Parameter | ConvertTo-SecureString -AsPlainText -Force) -NoWelcome
-write-host -ForegroundColor Green "Graph connection reset with fresh token."

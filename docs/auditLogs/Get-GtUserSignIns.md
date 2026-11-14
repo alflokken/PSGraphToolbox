@@ -13,15 +13,18 @@ Get sign-in logs for a user.
 ## SYNTAX
 
 ```
-Get-GtUserSignIns [-inputObject] <Object> [-startDate <DateTime>] [-endDate <DateTime>] [-raw]
- [<CommonParameters>]
+Get-GtUserSignIns [-inputObject] <Object> [-startDate <DateTime>] [-endDate <DateTime>] [-nonInteractive]
+ [-raw] [<CommonParameters>]
 ```
 
 ## DESCRIPTION
-Retrieves sign-in logs from Entra ID for a specific user.
-Includes authentication details, location, and status.
+Retrieves sign-in logs from Entra ID for a specific user (beta endpoint, required for authenticationDetails).
+A UPN is resolved to the object ID first.
+By default the endpoint returns interactive sign-ins;
+use -nonInteractive for non-interactive sign-ins.
+Results are sorted newest first.
 
-Requires scopes: AuditLog.Read.All.
+Requires scopes: AuditLog.Read.All (and User.Read.All to resolve a UPN).
 
 ## EXAMPLES
 
@@ -30,15 +33,20 @@ Requires scopes: AuditLog.Read.All.
 Get-GtUserSignIns "user@zavainc.com"
 ```
 
+Returns the user's interactive sign-ins since 05:00 today.
+
 ### EXAMPLE 2
 ```
-"user@zavainc.com" | signInLogs -startDate (Get-Date).AddDays(-7)
+"user@zavainc.com" | signInLogs -startDate (Get-Date).AddDays(-7) -nonInteractive
 ```
+
+Returns the user's non-interactive sign-ins from the last 7 days.
 
 ## PARAMETERS
 
 ### -inputObject
-User object, UPN, or object ID.
+User object (id/userPrincipalName), UPN, or object ID.
+Accepts pipeline input.
 
 ```yaml
 Type: Object
@@ -54,7 +62,7 @@ Accept wildcard characters: False
 
 ### -startDate
 Start date for the query.
-Defaults to today 05:00.
+Defaults to 05:00 today (local time).
 
 ```yaml
 Type: DateTime
@@ -63,7 +71,7 @@ Aliases:
 
 Required: False
 Position: Named
-Default value: (Get-Date 05:00)
+Default value: (Get-Date).AddDays(-1)
 Accept pipeline input: False
 Accept wildcard characters: False
 ```
@@ -80,6 +88,21 @@ Aliases:
 Required: False
 Position: Named
 Default value: (Get-Date)
+Accept pipeline input: False
+Accept wildcard characters: False
+```
+
+### -nonInteractive
+Only return non-interactive user sign-ins.
+
+```yaml
+Type: SwitchParameter
+Parameter Sets: (All)
+Aliases:
+
+Required: False
+Position: Named
+Default value: False
 Accept pipeline input: False
 Accept wildcard characters: False
 ```
@@ -106,12 +129,20 @@ This cmdlet supports the common parameters: -Debug, -ErrorAction, -ErrorVariable
 
 ## OUTPUTS
 
-### Array of sign-in log objects (raw or transformed). When not raw, output includes:
-### - dateTime: Converted to local time
-### - status: Mapped to "Success", "Interrupted", or "Failed"
-### - authMethod_0, authMethod_1: Flattened authentication method details
-### - device: Includes display name and device ID
-### - correlationId: Short form (last segment only)
+### Array of sign-in log objects (raw or transformed). When not raw, each object contains:
+### - dateTime: createdDateTime (local time)
+### - correlationId, sessionId: last segment only
+### - userPrincipalName, application
+### - status: "Success" (error code 0), "Interrupted" (50076, 50079, 50097, 50125, 50129, 50140, 50158, 50201, 50207) or "Failed"
+### - authMethod_0, authMethod_1: first and second authentication step (method and detail), prefixed "FAILED: " when the step failed
+### - tokenType: incoming token type (primaryRefreshToken shown as PRT)
+### - ipAddress, location ("country, city")
+### - device: device displayName and last segment of the deviceId
+### - client: client app used ("Native App" for mobile apps and desktop clients)
+### - browser: browser and operating system
+### - compliantDevice
+### - successfulCAPs, failedCAPs: applied Conditional Access policy names, ';'-separated (names starting with CA<number> are shortened to CA<number>)
+### - resultType: sign-in error code
 ## NOTES
 
 ## RELATED LINKS

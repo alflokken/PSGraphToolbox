@@ -17,12 +17,17 @@ Get-GtConditionalAccessPolicyReport [[-outputType] <Object>] [-onlyEnabledPolici
 ```
 
 ## DESCRIPTION
-Retrieves all Conditional Access policies and resolves GUIDs to human-readable names:
-- Users, groups, roles referenced in policy conditions
-- Applications and service principals
-- Named locations
+Retrieves all Conditional Access policies (beta endpoint) and resolves GUIDs in the policy conditions to human-readable names:
+- Users (as userPrincipalName), groups and directory roles
+- Applications and client service principals
+- Named locations (including "Multifactor authentication trusted IPs")
+IDs that cannot be resolved are kept as-is.
 
-Uses batch queries for efficient resolution of private/tenant-specific apps.
+Well-known Microsoft application names are resolved from a public list downloaded from GitHub
+(merill/microsoft-info, MicrosoftApps.json, 3-second timeout), so internet access is needed; if the download fails,
+errors are written and those applications may be shown by appId.
+Other (tenant-specific) applications are resolved
+with batch queries.
 
 Requires scopes: Policy.Read.All, Directory.Read.All.
 
@@ -61,7 +66,7 @@ Accept wildcard characters: False
 ```
 
 ### -onlyEnabledPolicies
-Only return policies with state "Enabled".
+Only return policies with state "enabled" (report-only and disabled policies are excluded).
 
 ```yaml
 Type: SwitchParameter
@@ -80,12 +85,11 @@ This cmdlet supports the common parameters: -Debug, -ErrorAction, -ErrorVariable
 
 ## INPUTS
 
-### None.
 ## OUTPUTS
 
-### Array of policy objects (PSObject mode) or HTML report file path (html mode).
-### Each policy includes resolved displayNames for users, groups, roles, applications, and named locations.
-### System.Object[] (PSObject) or System.String (html report).
+### PSObject mode: array of policy objects as returned by Graph, with the resolved names in place of GUIDs in conditions.
+### html mode: nothing is returned. The report is written to .\PSGraphToolbox_ConditionalAccessPolicies_<yyyyMMdd_HHmmss>.html
+### in the current directory and opened in the default browser.
 ## NOTES
 
 ## RELATED LINKS

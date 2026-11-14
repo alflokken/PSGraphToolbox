@@ -49,7 +49,7 @@ Describe 'Invoke-GtGraphRequest' -Tag 'Integration' {
         }
 
         It 'Should handle beta API version' {
-            $users = Invoke-GtGraphRequest -resourcePath "users" -apiVersion "beta" -select "id,signInActivity" -top 1 -pageLimit 1
+            $users = Invoke-GtGraphRequest -resourcePath "users" -apiVersion "beta" -select "id,createdDateTime" -top 1 -pageLimit 1
             
             $users | Should -Not -BeNullOrEmpty
         }
@@ -154,6 +154,44 @@ Describe 'Invoke-GtGraphBatchRequest' -Tag 'Integration' {
         
         $results.Keys | Should -Contain "first"
     }
+
+    It 'Should return dateTime values converted to local time' {
+        # groups always have createdDateTime (users created/synced before June 2018 may return null)
+        $groups = Invoke-GtGraphRequest -resourcePath "groups" -select "id" -top 1 -PageLimit 1
+
+        if ($groups.Count -eq 0) {
+            Set-ItResult -Skipped -Because "No groups found in tenant"
+            return
+        }
+
+        $requests = @(
+            @{ id = "single"; method = "GET"; url = "groups/$($groups[0].id)?`$select=id,createdDateTime" }
+            @{ id = "collection"; method = "GET"; url = "groups?`$select=id,createdDateTime&`$top=2" }
+        )
+
+        # first page only; following nextLink with $top=2 would page through all groups
+        $results = Invoke-GtGraphBatchRequest -requests $requests -PageLimit 1 -WarningAction SilentlyContinue
+
+        $results["single"].createdDateTime | Should -BeOfType [datetime]
+        $results["single"].createdDateTime.Kind | Should -Be 'Local'
+        @($results["collection"])[0].createdDateTime.Kind | Should -Be 'Local'
+    }
+
+    It 'Should follow @odata.nextLink up to PageLimit' {
+        $users = Invoke-GtGraphRequest -resourcePath "users" -select "id" -top 3 -PageLimit 1
+
+        if ($users.Count -lt 2) {
+            Set-ItResult -Skipped -Because "At least 2 users required to test paging"
+            return
+        }
+
+        # one user per page forces paging
+        $requests = @( @{ id = "paged"; method = "GET"; url = "users?`$select=id&`$top=1" } )
+
+        $results = Invoke-GtGraphBatchRequest -requests $requests -PageLimit 3 -WarningAction SilentlyContinue
+
+        @($results["paged"]) | Should -HaveCount $users.Count
+    }
 }
 #endregion
 
@@ -241,6 +279,20 @@ Describe 'Get-GtGraphDirectoryObjectsByIds' -Tag 'Integration' {
         
         $resolved.Count | Should -Be $users.Count
         $resolved[0].displayName | Should -Not -BeNullOrEmpty
+    }
+
+    It 'Should return dateTime values converted to local time' {
+        $groups = Invoke-GtGraphRequest -resourcePath "groups" -select "id" -top 1 -PageLimit 1
+
+        if ($groups.Count -eq 0) {
+            Set-ItResult -Skipped -Because "No groups found in tenant"
+            return
+        }
+
+        $resolved = @(Get-GtGraphDirectoryObjectsByIds -Type group -Ids $groups.id)
+
+        $resolved[0].createdDateTime | Should -BeOfType [datetime]
+        $resolved[0].createdDateTime.Kind | Should -Be 'Local'
     }
 
     It 'Should handle large ID arrays by chunking' {

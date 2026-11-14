@@ -36,6 +36,7 @@ Returns tenant information for the specified ID.
 
 ### -tenantId
 The tenant ID (GUID) to look up.
+Accepts pipeline input.
 
 ```yaml
 Type: Guid
@@ -56,7 +57,7 @@ This cmdlet supports the common parameters: -Debug, -ErrorAction, -ErrorVariable
 
 ## OUTPUTS
 
-### PSObject with cross-tenant information: displayName, defaultDomain, federationBrandName, etc.
+### PSObject with tenantId, displayName, defaultDomainName and federationBrandName.
 ## NOTES
 
 ## RELATED LINKS

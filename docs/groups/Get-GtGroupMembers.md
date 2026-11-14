@@ -17,8 +17,8 @@ Get-GtGroupMembers [-InputObject] <Object> [-Transitive] [<CommonParameters>]
 ```
 
 ## DESCRIPTION
-Retrieves members of an Entra ID group.
-Supports transitive membership lookup.
+Retrieves direct members of an Entra ID group, or with -Transitive all members of nested groups as well.
+Members can be users, groups, devices or service principals; properties that do not apply to a member type are empty.
 
 Requires scopes: GroupMember.Read.All or Group.Read.All.
 
@@ -29,15 +29,21 @@ Requires scopes: GroupMember.Read.All or Group.Read.All.
 Get-GtGroupMembers -InputObject "Sales Team"
 ```
 
+Returns the direct members of the group 'Sales Team'.
+
 ### EXAMPLE 2
 ```
 "00000000-0000-0000-0000-000000000000" | Get-GtGroupMembers -Transitive
 ```
 
+Returns all members of the group, including members of nested groups.
+
 ## PARAMETERS
 
 ### -InputObject
 Group object, displayName, or object ID.
+Accepts pipeline input.
+A displayName must match exactly one group.
 
 ```yaml
 Type: Object
@@ -74,7 +80,7 @@ This cmdlet supports the common parameters: -Debug, -ErrorAction, -ErrorVariable
 
 ## OUTPUTS
 
-### Array of member objects with id, accountEnabled, userPrincipalName, displayName.
+### Array of member objects with @odata.type, id, accountEnabled, userPrincipalName, displayName.
 ## NOTES
 
 ## RELATED LINKS

@@ -19,7 +19,12 @@ Get-idFromInputObject [-InputObject] <Object> [-objectIdOnly] [-AllowRawString] 
 ## DESCRIPTION
 Normalizes various input types to an ID and type.
 Accepts strings (GUID or UPN),
-or objects with 'id' or 'userPrincipalName' properties.
+or objects with 'id' or 'userPrincipalName' properties (id is used when both exist).
+
+The value is classified as 'guid', 'upn' (see isValidUserPrincipalName) or, with -AllowRawString, 'string'.
+Throws for null/empty input, objects without id/userPrincipalName, and values that are neither a GUID nor
+a recognized UPN (e.g.
+guest #EXT# UPNs or display names) unless -AllowRawString is used.
 
 ## EXAMPLES
 
@@ -28,19 +33,27 @@ or objects with 'id' or 'userPrincipalName' properties.
 Get-idFromInputObject "user@zavainc.com"
 ```
 
-# Returns: @{ id = "user@zavainc.com"; type = "upn" }
+Returns an object with id 'user@zavainc.com' and type 'upn'.
 
 ### EXAMPLE 2
 ```
 $user | Get-idFromInputObject -objectIdOnly
 ```
 
-# Extracts object ID, throws if not a valid GUID.
+Returns the object ID of the piped user; throws if it is not a valid GUID.
+
+### EXAMPLE 3
+```
+Get-idFromInputObject "Sales Team" -AllowRawString
+```
+
+Returns an object with id 'Sales Team' and type 'string'.
 
 ## PARAMETERS
 
 ### -InputObject
 String (GUID/UPN) or object with id/userPrincipalName property.
+Accepts pipeline input.
 
 ```yaml
 Type: Object
@@ -56,7 +69,7 @@ Accept wildcard characters: False
 
 ### -objectIdOnly
 Require the result to be a valid GUID.
-Throws if input is UPN or string.
+Throws if the value is a UPN or any other string.
 
 ```yaml
 Type: SwitchParameter

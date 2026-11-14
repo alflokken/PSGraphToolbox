@@ -19,7 +19,11 @@ Revoke-GtUserSession [-InputObject] <Object> [-WhatIf] [-Confirm <Boolean>] [<Co
 ## DESCRIPTION
 Invalidates all refresh tokens issued to applications for a user.
 Also invalidates session cookies in the user's browser.
-Requires User.ReadWrite.All or Directory.ReadWrite.All.
+Revocation can take a few minutes,
+and does not apply to external (guest) users, who sign in through their home tenant.
+Unless -WhatIf is used or -Confirm is $false, you are prompted to confirm (Y/N).
+
+Requires scopes: User.RevokeSessions.All (least privileged), or User.ReadWrite.All / Directory.ReadWrite.All.
 
 ## EXAMPLES
 
@@ -28,15 +32,27 @@ Requires User.ReadWrite.All or Directory.ReadWrite.All.
 Revoke-GtUserSession -inputObject "user@zavainc.com"
 ```
 
+Revokes all sessions for the user after confirmation.
+
 ### EXAMPLE 2
 ```
-"user@zavainc.com" | Revoke-GtUserSession
+"user@zavainc.com" | Revoke-GtUserSession -WhatIf
 ```
+
+Shows which user's sessions would be revoked, without making changes.
+
+### EXAMPLE 3
+```
+Revoke-GtUserSession -inputObject "user@zavainc.com" -Confirm $false
+```
+
+Revokes all sessions without prompting.
 
 ## PARAMETERS
 
 ### -InputObject
 User object, UPN, or object ID.
+Accepts pipeline input.
 
 ```yaml
 Type: Object
@@ -51,8 +67,7 @@ Accept wildcard characters: False
 ```
 
 ### -WhatIf
-Shows what would happen if the cmdlet runs.
-The cmdlet is not run.
+Preview the action without making changes.
 
 ```yaml
 Type: SwitchParameter
@@ -67,7 +82,9 @@ Accept wildcard characters: False
 ```
 
 ### -Confirm
-Prompts you for confirmation before running the cmdlet.
+Prompt for confirmation.
+Defaults to true.
+Set to $false to skip the prompt.
 
 ```yaml
 Type: Boolean
@@ -88,6 +105,7 @@ This cmdlet supports the common parameters: -Debug, -ErrorAction, -ErrorVariable
 
 ## OUTPUTS
 
+### PSObject with userId, success (value returned by Graph) and timestamp. Nothing is returned with -WhatIf or when cancelled.
 ## NOTES
 
 ## RELATED LINKS

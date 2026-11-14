@@ -4,50 +4,65 @@ function Get-GtUserSignIns {
     Get sign-in logs for a user.
 
     .DESCRIPTION
-    Retrieves sign-in logs from Entra ID for a specific user.
-    Includes authentication details, location, and status.
+    Retrieves sign-in logs from Entra ID for a specific user (beta endpoint, required for authenticationDetails).
+    A UPN is resolved to the object ID first. By default the endpoint returns interactive sign-ins;
+    use -nonInteractive for non-interactive sign-ins. Results are sorted newest first.
 
-    Requires scopes: AuditLog.Read.All.
+    Requires scopes: AuditLog.Read.All (and User.Read.All to resolve a UPN).
 
     .PARAMETER inputObject
-    User object, UPN, or object ID.
+    User object (id/userPrincipalName), UPN, or object ID. Accepts pipeline input.
 
     .PARAMETER startDate
-    Start date for the query. Defaults to today 05:00.
+    Start date for the query. Defaults to 05:00 today (local time).
 
     .PARAMETER endDate
     End date for the query. Defaults to now.
+
+    .PARAMETER nonInteractive
+    Only return non-interactive user sign-ins.
 
     .PARAMETER raw
     Return raw sign-in log objects without transformation/flattening.
 
     .OUTPUTS
-    Array of sign-in log objects (raw or transformed). When not raw, output includes:
-    - dateTime: Converted to local time
-    - status: Mapped to "Success", "Interrupted", or "Failed"
-    - authMethod_0, authMethod_1: Flattened authentication method details
-    - device: Includes display name and device ID
-    - correlationId: Short form (last segment only)
+    Array of sign-in log objects (raw or transformed). When not raw, each object contains:
+    - dateTime: createdDateTime (local time)
+    - correlationId, sessionId: last segment only
+    - userPrincipalName, application
+    - status: "Success" (error code 0), "Interrupted" (50076, 50079, 50097, 50125, 50129, 50140, 50158, 50201, 50207) or "Failed"
+    - authMethod_0, authMethod_1: first and second authentication step (method and detail), prefixed "FAILED: " when the step failed
+    - tokenType: incoming token type (primaryRefreshToken shown as PRT)
+    - ipAddress, location ("country, city")
+    - device: device displayName and last segment of the deviceId
+    - client: client app used ("Native App" for mobile apps and desktop clients)
+    - browser: browser and operating system
+    - compliantDevice
+    - successfulCAPs, failedCAPs: applied Conditional Access policy names, ';'-separated (names starting with CA<number> are shortened to CA<number>)
+    - resultType: sign-in error code
 
     .EXAMPLE
     Get-GtUserSignIns "user@zavainc.com"
+    Returns the user's interactive sign-ins since 05:00 today.
 
     .EXAMPLE
-    "user@zavainc.com" | signInLogs -startDate (Get-Date).AddDays(-7)
+    "user@zavainc.com" | signInLogs -startDate (Get-Date).AddDays(-7) -nonInteractive
+    Returns the user's non-interactive sign-ins from the last 7 days.
 
     .LINK
     https://github.com/alflokken/PSGraphToolbox/blob/main/docs/auditLogs/Get-GtUserSignIns.md
     #>
-    [Alias('signInLogs')]
     [CmdletBinding()]
     param (
         [Parameter(Mandatory, ValueFromPipeline = $true, Position = 0)]
         [Object]$inputObject,
-        [datetime]$startDate = (Get-Date 05:00),
+        [datetime]$startDate = (Get-Date).AddDays(-1),
         [datetime]$endDate = (Get-Date),
+        [switch]$nonInteractive,
         [switch]$raw
     )
-    process {
+        # todo: refactor (appSignins vs userSignIns)
+        process {
 
         if ( -not $inputObject ) { throw "Input object is null or empty." }
         # determine identifier
@@ -64,7 +79,9 @@ function Get-GtUserSignIns {
             }
             [string]$startDateString = get-date ($startDate.ToUniversalTime()) -UFormat "%Y-%m-%dT%H:%M:%SZ"
             [string]$endDateString = get-date ($endDate.ToUniversalTime()) -UFormat "%Y-%m-%dT%H:%M:%SZ"
-            $signInLogs = Invoke-GtGraphRequest -resourcePath "auditLogs/signIns" -filter "userId eq '$id' and createdDateTime ge $startDateString and createdDateTime le $endDateString" -top 999 -orderBy "createdDateTime desc" -apiVersion beta # beta required for authenticationDetails
+            $queryFilter = "userId eq '$id' and createdDateTime ge $startDateString and createdDateTime le $endDateString"
+            if ( $nonInteractive ) { $queryFilter += " and (signInEventTypes/any(t: t eq 'nonInteractiveUser'))" }
+            $signInLogs = Invoke-GtGraphRequest -resourcePath "auditLogs/signIns" -filter $queryFilter -top 999 -orderBy "createdDateTime desc" -apiVersion beta # beta required for authenticationDetails
             if ( $raw ) { return $signInLogs }
         }
         catch {
@@ -73,8 +90,9 @@ function Get-GtUserSignIns {
 
         # filter and flatten
         return $signInLogs  | Select-Object @(
-            @{ Name = "dateTime";           Expression = { (Get-Date $_.createdDateTime).ToLocalTime() } }
+            @{ Name = "dateTime";           Expression = { $_.createdDateTime } }
             @{ Name = "correlationId";      Expression = { ($_.correlationId -split "-")[-1] } }
+            @{ Name = "sessionId";          Expression = { ($_.sessionId -split "-")[-1] } }
             @{ Name = "userPrincipalName";  Expression = { $_.userPrincipalName } }
             @{ Name = "status";             Expression = { 
                 $interruptCodes = @(50076, 50079, 50097, 50125, 50129, 50140, 50158, 50201, 50207) # source: https://cloudbrothers.info/en/entra-id-azure-ad-signin-errors/
@@ -86,7 +104,8 @@ function Get-GtUserSignIns {
             @{ Name = "authMethod_0";       Expression = { 
                 if ($_.authenticationDetails.Count -ge 1) {
                     $prefix = if ($_.authenticationDetails[0].succeeded -eq $false -and $_.authenticationDetails[0].authenticationStepResultDetail -ne "MFA successfully completed" ) { "FAILED: " } else { "" }
-                    "$prefix$($_.authenticationDetails[0].authenticationMethod)"
+                    #authenticationMethodDetail
+                    "$prefix$($_.authenticationDetails[0].authenticationMethod) $($_.authenticationDetails[0].authenticationMethodDetail)"
                 }
             }}
             @{ Name = "authMethod_1";       Expression = { 
@@ -100,10 +119,12 @@ function Get-GtUserSignIns {
                     } else { 
                         $_.authenticationDetails[1].authenticationStepResultDetail 
                     }
-                    "$prefix$method"
+                    "$prefix$method$($($_.authenticationDetails[1].authenticationMethodDetail))"
                 }
             }}
+            @{ Name = "tokenType";          Expression = { $_.incomingTokenType -replace "primaryRefreshToken", "PRT" } }
             @{ Name = "ipAddress";          Expression = { $_.ipAddress } }
+            @{ Name = "location";           Expression = { "$($_.location.countryOrRegion), $($_.location.city)" } }
             @{ Name = "device";             Expression = { 
                 [string]$deviceInfo = $null
                 if ( $_.deviceDetail.deviceId ) { 

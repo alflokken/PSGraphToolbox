@@ -9,48 +9,44 @@ function Sync-GtGraphResourceDelta {
     state using pluggable storage providers.
 
     First call performs a full sync. Subsequent calls retrieve only changes since last sync.
-    Handles delta token expiration (410 Gone) by automatically performing a full resync.
+    Handles delta token expiration (HTTP 410 Gone, or HTTP 400 'DeltaLink older than') by automatically performing a full resync.
+    Stored state is only reused when it was created for the same tenant, ResourcePath, Filter and SelectProperties;
+    otherwise a warning is written and the state is replaced by a full sync.
+
+    Requires an existing Microsoft Graph connection (Connect-MgGraph); throws if not connected.
 
     Requires scopes: Varies by resource path (e.g., User.Read.All for users/delta).
 
     .PARAMETER ResourcePath
-    The Graph API delta resource path (e.g., "users/delta", "groups/delta").
-
-    Append "?deltaToken=latest" to skip initial full sync and only track future changes, be aware
-    that this does not support filter parameters.
+    The Graph API delta resource path (e.g., "users/delta", "groups/delta"). Must contain "delta". 
 
     .PARAMETER SelectProperties
     Comma-separated list of properties to track. The 'id' property is automatically 
-    included if not specified.
+    included if not specified; the list is trimmed, sorted and de-duplicated.
 
     .PARAMETER Filter
     OData $filter expression to apply to the delta query.
 
     .PARAMETER StorageProvider
-    Storage backend for persisting delta state. Currently supports: JsonFile.
+    Storage backend for persisting delta state. Currently supports: JsonFile (default).
     Future options may include Sql, CosmosDb, etc.
 
     .PARAMETER StoragePath
-    Path to the storage file (for JsonFile provider).
+    Path to the storage file (for JsonFile provider). The parent directory must exist.
 
     .PARAMETER NoWrite
     Skip writing updated state to storage. Useful for testing or dry-run scenarios.
 
     .OUTPUTS
     PSObject with:
-    - ChangeLog: Array of change records (entityId, change type, description)
-    - CurrentState: Updated state object containing all entities and deltaLink
+    - ChangeLog: Array of change records with entityId, entityName, change (ADD, UPDATE or REMOVE) and description. Empty after a full sync.
+    - CurrentState: Updated state object with value (all entities), deltaLink, dateRetrieved and queryId
     - ItemCount: Total number of entities in current state
 
     .EXAMPLE
     Sync-GtGraphResourceDelta -ResourcePath "users/delta" -SelectProperties "id,displayName,accountEnabled" -StorageProvider JsonFile -StoragePath ".\userState.json"
     
     Performs delta sync of users, storing state in JSON file.
-
-    .EXAMPLE
-    $result = Sync-GtGraphResourceDelta -ResourcePath "users/delta?deltaToken=latest" -SelectProperties "id,displayName" -StoragePath ".\users.json"
-    
-    Start tracking from current state (skip initial full sync). Useful when you only care about future changes.
 
     .EXAMPLE
     $result = Sync-GtGraphResourceDelta -ResourcePath "groups/delta" -SelectProperties "id,displayName,members" -Filter "id eq 'group-guid-here'" -StoragePath ".\members.json"
@@ -62,13 +58,15 @@ function Sync-GtGraphResourceDelta {
     For groups, expanding members have known limitations in Graph delta queries. Initial sync may not return complete member lists due to API behavior. 
     Consider using a hybrid approach (regular group members retrieval followed by delta queries) for reliable results.
 
+    TODO: add support for 'deltaToken=latest'
+
     .LINK
     https://github.com/alflokken/PSGraphToolbox/blob/main/docs/core/Sync-GtGraphResourceDelta.md
     #>
     [CmdletBinding()]
     param(
         [Parameter(Mandatory=$true)]
-        [ValidatePattern("delta")]
+        [ValidatePattern('^[^?]*delta[^?]*$')]
         [string]$ResourcePath,
 
         [Parameter(Mandatory=$false)][string]$SelectProperties,
@@ -81,18 +79,27 @@ function Sync-GtGraphResourceDelta {
     )
 
     #region nested helper functions
-    # helper for verbose output
-    function timeStamp { return (Get-Date).ToString("yyyy-MM-dd HH:mm:ss:") }
     # helper to compare two objects and return a description of property changes (used for changelog)
     function Get-ObjectChangeDetails {
         <#
         .SYNOPSIS
-            Compares two objects and returns a description of property changes.
+        Compares two objects and returns a description of property changes.
+
         .DESCRIPTION
-            Internal helper function for Sync-GtGraphResourceDelta.
-            Compares properties between reference and difference objects, returning 
-            a string describing what changed. Skips @delta relationships as they are 
-            handled separately with detailed change tracking.
+        Internal helper function for Sync-GtGraphResourceDelta.
+        Compares properties between reference and difference objects, returning
+        a string describing what changed. Skips @delta relationships as they are
+        handled separately with detailed change tracking.
+
+        .PARAMETER ReferenceObject
+        The previous (cached) version of the object.
+
+        .PARAMETER DifferenceObject
+        The current (updated) version of the object.
+
+        .EXAMPLE
+        Get-ObjectChangeDetails -ReferenceObject $old -DifferenceObject $new
+        Returns e.g. "displayName changed from 'A' to 'B'; ", or nothing if there are no changes.
         #>
         param(
             [object]$ReferenceObject,
@@ -106,7 +113,7 @@ function Sync-GtGraphResourceDelta {
             $oldVal = $ReferenceObject.$prop
             $newVal = $DifferenceObject.$prop
             if ( $newVal -is [string] -or $newVal -is [bool] ) {
-                if ( $oldVal -ne $newVal ) { $changes += "$prop changed from '$oldVal' to '$newVal'; " }
+                if ( $oldVal -cne $newVal ) { $changes += "$prop changed from '$oldVal' to '$newVal'; " }
             }
             else {
                 $oldJson = $oldVal | ConvertTo-Json -Compress
@@ -123,26 +130,20 @@ function Sync-GtGraphResourceDelta {
     if ( -not (Get-MgContext) ) { throw "No Microsoft Graph context found. Please connect using Connect-MgGraph." }
     else                        { $tenantId = (Get-MgContext).tenantId }
 
+    if ( $ResourcePath -match '\?' ) { throw "ResourcePath must not contain query parameters; use -Filter/-SelectProperties." }
+
     # Get storage provider functions
     $getStateFunction = Get-Command "Get-GtDeltaStateFrom$StorageProvider" -ErrorAction Stop
     $setStateFunction = Get-Command "Set-GtDeltaStateTo$StorageProvider" -ErrorAction Stop
     $testStateFunction = Get-Command "Test-GtDeltaState$StorageProvider" -ErrorAction Stop
 
     # Storage provider validation
-    try { & $testStateFunction -Path $StoragePath }
+    try { $null = & $testStateFunction -Path $StoragePath }
     catch { throw $_ }
 
-    # Sync from now - skip state retrieval
-    if ( $ResourcePath -match "deltaToken=latest" ) { 
-        Write-Verbose "$(timeStamp) deltaToken=latest detected - will skip historical data and track only future changes"
-        if ( $Filter ) { Write-Warning "Filter parameter is not honored by deltaToken=latest. The returned deltaLink will track all resources in the collection." }
-        $previousState = $null 
-    }
     # Retrieve previous state from storage (if exists)
-    else {
-        Write-Debug "$(timeStamp) Retrieving previous state from $StoragePath using $StorageProvider provider"
-        $previousState = & $getStateFunction -Path $StoragePath
-    }
+    Write-Debug "Retrieving previous state from $StoragePath using $StorageProvider provider"
+    $previousState = & $getStateFunction -Path $StoragePath
 
     # Normalize select properties - ensure 'id' is included for entity tracking and lookups
     if ( $SelectProperties ) {
@@ -166,24 +167,24 @@ function Sync-GtGraphResourceDelta {
     #region validate state
     # State is valid only if ALL criteria are met:
     # 1. State object exists (not null/empty)
-    # 2. State contains deltaLink from previous sync
+    # 2. State contains a non-empty deltaLink from previous sync
     # 3. Current query parameters match stored queryId (if params change, state is stale)
-    $stateHasDeltaLink    = $previousState -and $previousState.PSObject.Properties.Name -contains "deltaLink"
+    $stateHasDeltaLink    = $previousState -and $previousState.PSObject.Properties.Name -contains "deltaLink" -and $previousState.deltaLink
     $queryParamsMatch     = $previousState -and $previousState.queryId -eq $updatedState.queryId
     $isValidPreviousState = $stateHasDeltaLink -and $queryParamsMatch
     if ( -not $isValidPreviousState ) {
         if ( $previousState ) {
             Write-Warning "Stored state is invalid or query parameters have changed. Existing state will be overwritten."
-            Write-Verbose "$(timeStamp) Stored queryId: $($previousState.queryId)"
-            Write-Verbose "$(timeStamp) Current queryId: $($updatedState.queryId)"
+            Write-GtVerbose "Stored queryId: $($previousState.queryId)"
+            Write-GtVerbose "Current queryId: $($updatedState.queryId)"
         }
-        else { Write-Verbose "$(timeStamp) No previous state found: performing full sync" }
+        else { Write-GtVerbose "No previous state found: performing full sync" }
     }
     #endregion
 
     #region delta query
     if ( $isValidPreviousState ) {
-        Write-Verbose "$(timeStamp) Performing incremental delta query (last sync: $($previousState.dateRetrieved))"
+        Write-GtVerbose "Performing incremental delta query (last sync: $($previousState.dateRetrieved))"
         try { $deltaQueryResults = Invoke-GtGraphRequest -resourcePath $previousState.deltaLink -pageLimit 9999 -Verbose:$false } #-AdditionalHeaders  @{"Prefer" = "return=minimal"}
         catch {
             # Delta token expiration handling:
@@ -201,7 +202,7 @@ function Sync-GtGraphResourceDelta {
 
     #region process changes
     if ( $isValidPreviousState -and $deltaQueryResults.value.Count -eq 0 ) {
-        Write-Verbose "$(timeStamp) No changes detected since last sync. Updated deltaLink and dateRetrieved in state."
+        Write-GtVerbose "No changes detected since last sync. Updated deltaLink and dateRetrieved in state."
         $updatedState.value = $previousState.value
         $updatedState.dateRetrieved = $deltaQueryResults.dateRetrieved
         $updatedState.deltaLink = $deltaQueryResults.deltaLink
@@ -210,7 +211,7 @@ function Sync-GtGraphResourceDelta {
         
         # Build hashtable index for entity lookups
         $entityLookup = ConvertTo-HashTable -InputObject $previousState.value -KeyProperty "id"
-        Write-Verbose "$(timeStamp) Processing $($deltaQueryResults.value | measure | select -expand count) changed entities (current entity count: $($entityLookup.Count))"
+        Write-GtVerbose "Processing $($deltaQueryResults.value | measure | select -expand count) changed entities (current entity count: $($entityLookup.Count))"
 
         foreach ( $changedEntity in $deltaQueryResults.value ) {
         
@@ -302,7 +303,7 @@ function Sync-GtGraphResourceDelta {
             }
 
             # best available name for changelog - prefer userPrincipalName or displayName if present
-            if ( $changeDescription -match "userPrincipalName" -or $changeType -eq "ADD" ) { $entityName = $changedEntity.userPrincipalName }
+            if ( $changeDescription -match "userPrincipalName" -or ($changeType -eq "ADD" -and $changedEntity.userPrincipalName) ) { $entityName = $changedEntity.userPrincipalName }
             elseif ( $existingEntity.userPrincipalName ) { $entityName = $existingEntity.userPrincipalName }
             elseif ( $changeDescription -match "displayName" -or $changeType -eq "ADD" ) { $entityName = $changedEntity.displayName }
             elseif ( $existingEntity.displayName ) { $entityName = $existingEntity.displayName }
@@ -322,12 +323,12 @@ function Sync-GtGraphResourceDelta {
         
         # Verbose summary of changes: "UPDATE: 52, ADD: 32, REMOVE: 3"
         $changeSummary = ($changeLog | Group-Object change | ForEach-Object { "$($_.Name): $($_.Count)" }) -join ', '
-        Write-Verbose "$(timeStamp) Incremental sync complete: $changeSummary"
+        Write-GtVerbose "Incremental sync complete: $changeSummary"
     }
     #endregion
     #region full sync
     else {
-        Write-Verbose "$(timeStamp) Performing initial (full) sync: $ResourcePath"
+        Write-GtVerbose "Performing initial (full) sync: $ResourcePath"
         $queryParams = @{
             resourcePath    = $ResourcePath
             pageLimit       = 9999
@@ -359,15 +360,15 @@ function Sync-GtGraphResourceDelta {
         $updatedState.value = @($deltaQueryResults.value | Sort-Object -Property id -Unique)
         $updatedState.dateRetrieved = $deltaQueryResults.dateRetrieved
         $updatedState.deltaLink = $deltaQueryResults.deltaLink
-        Write-Verbose "$(timeStamp) Initial sync complete: $($updatedState.value.Count) items retrieved"
+        Write-GtVerbose "Initial sync complete: $($updatedState.value.Count) items retrieved"
     }
     #endregion
 
     # write updated state to storage (unless nowrite switch is set)
-    if ( $NoWrite ) { Write-Verbose "$(timeStamp) Skipping writing updated delta state to $StoragePath (nowrite switch set)" }
+    if ( $NoWrite ) { Write-GtVerbose "Skipping writing updated delta state to $StoragePath (nowrite switch set)" }
     else { 
         & $setStateFunction -Path $StoragePath -State $updatedState
-        Write-Verbose "$(timeStamp) State written to $StoragePath"
+        Write-GtVerbose "State written to $StoragePath"
     }
 
     # output result object with change log and current state

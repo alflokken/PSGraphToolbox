@@ -5,29 +5,45 @@ function New-GtUserTemporaryAccessPass {
 
     .DESCRIPTION
     Creates a new Temporary Access Pass for a user via MS Graph API.
-    Requires UserAuthenticationMethod.ReadWrite.All permission.
+    Unless -WhatIf is used or -Confirm is $false, you are prompted to confirm (Y/N).
+    The tenant's Temporary Access Pass policy must allow the requested lifetime and usage.
+
+    Requires scopes: UserAuthenticationMethod.ReadWrite.All.
 
     .PARAMETER inputObject
-    User object, UPN, or object ID.
+    User object, UPN, or object ID. Accepts pipeline input.
 
     .PARAMETER LifetimeInMinutes
     TAP validity duration in minutes (10-43200). Defaults to 60.
 
     .PARAMETER IsUsableOnce
-    If true, TAP can only be used once. Defaults to false.
+    If specified, the TAP can only be used once. By default the TAP is multi-use.
+
+    .PARAMETER WhatIf
+    Preview the action without making changes.
+
+    .PARAMETER Confirm
+    Prompt for confirmation. Defaults to true. Set to $false to skip the prompt.
+
+    .OUTPUTS
+    PSObject with userId, temporaryAccessPass (the pass in clear text), lifetimeInMinutes, isUsableOnce,
+    startDateTime (local time) and methodUsabilityReason. Nothing is returned with -WhatIf or when cancelled.
 
     .EXAMPLE
     New-GtUserTemporaryAccessPass -inputObject "user@zavainc.com"
-    Issues a 60-minute TAP for the user.
+    Issues a 60-minute TAP for the user after confirmation.
 
     .EXAMPLE
     "user@zavainc.com" | New-GtUserTemporaryAccessPass -LifetimeInMinutes 480 -IsUsableOnce
     Issues a single-use 8-hour TAP for the user.
 
+    .EXAMPLE
+    New-GtUserTemporaryAccessPass "user@zavainc.com" -Confirm $false
+    Issues a TAP without prompting (for automation).
+
     .LINK
     https://github.com/alflokken/PSGraphToolbox/blob/main/docs/users/New-GtUserTemporaryAccessPass.md
     #>
-    [Alias('generateTap')]
     [CmdletBinding()]
     param(
         [Parameter(Mandatory, ValueFromPipeline = $true, Position = 0)]
@@ -47,7 +63,7 @@ function New-GtUserTemporaryAccessPass {
         [bool]$Confirm = $true
     )
     process {
-        $id = idFromInputObject -inputObject $InputObject | Select-Object -ExpandProperty id
+        $id = Get-IdFromInputObject -inputObject $InputObject | Select-Object -ExpandProperty id
 
         # confirm
         if ( $Confirm -and -not $WhatIf ) {
@@ -63,6 +79,9 @@ function New-GtUserTemporaryAccessPass {
 
         try { $response = Invoke-MgGraphRequest -Method POST -Uri "v1.0/users/$id/authentication/temporaryAccessPassMethods" -Body $body -ContentType "application/json" -OutputType PSObject }
         catch { throw $_ }
+
+        # convert dateTime values (UTC -> local) in place
+        $null = ConvertTo-GtLocalDateTime -InputObject $response
 
         # return key info
         $obj = New-Object -TypeName PSObject

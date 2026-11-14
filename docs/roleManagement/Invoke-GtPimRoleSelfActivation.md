@@ -26,9 +26,11 @@ Invoke-GtPimRoleSelfActivation -RoleDefinitionId <Guid> [-Justification <String>
 
 ## DESCRIPTION
 Activates a Privileged Identity Management (PIM) eligible role assignment for the 
-current signed-in user.
-After activation, you may need to reconnect to Microsoft Graph
-to obtain a fresh token with updated role claims (wids).
+current signed-in user (resolved via /me, so a delegated sign-in is required).
+The activation
+is tenant-wide (directory scope '/') and starts immediately.
+After activation, you may need to reconnect
+to Microsoft Graph to obtain a fresh token with updated role claims (wids); a warning about this is always written.
 
 NOTE: Windows Token Broker caches access tokens persistently.
 After PIM activation,
@@ -45,28 +47,32 @@ Requires scopes: RoleAssignmentSchedule.ReadWrite.Directory
 Invoke-GtPimRoleSelfActivation -Role GlobalReader
 ```
 
-# Activates GlobalReader role for 8 hours
+Activates the Global Reader role for 8 hours.
 
 ### EXAMPLE 2
 ```
 Invoke-GtPimRoleSelfActivation -Role GlobalAdmin -Justification "Emergency admin task" -DurationInHours 2
 ```
 
-# Activates GlobalAdmin for 2 hours with custom justification
+Activates Global Administrator for 2 hours with a custom justification.
 
 ### EXAMPLE 3
 ```
 Invoke-GtPimRoleSelfActivation -RoleDefinitionId "62e90394-69f5-4237-9190-012177145e10"
 ```
 
-# Activates a role by its definition ID
+Activates a role by its definition ID.
 
 ## PARAMETERS
 
 ### -Role
-Predefined role to activate.
-Valid values: GlobalReader, GlobalAdmin, IntuneAdmin, 
-ConditionalAccessAdmin, AuthenticationAdmin.
+Predefined (commonly used) built-in role to activate.
+Valid values: GlobalReader, GlobalAdmin, PrivilegedRoleAdmin, PrivilegedAuthenticationAdmin, AuthenticationAdmin, AuthenticationPolicyAdmin,
+ConditionalAccessAdmin, SecurityAdmin, SecurityOperator, SecurityReader, UserAdmin, HelpdeskAdmin, GroupsAdmin, ApplicationAdmin, 'Cloud Application Administrator', HybridIdentityAdmin,
+IdentityGovernanceAdmin, IntuneAdmin, ExchangeAdmin, SharePointAdmin, TeamsAdmin, ComplianceAdmin.
+
+Defaults to GlobalReader, so running the function without parameters activates Global Reader.
+For any other role, use -RoleDefinitionId.
 
 ```yaml
 Type: String
@@ -113,7 +119,7 @@ Accept wildcard characters: False
 ```
 
 ### -DurationInHours
-How long the role should remain active.
+How long the role should remain active, 1-24 hours.
 Default: 8 hours.
 
 ```yaml
@@ -135,6 +141,7 @@ This cmdlet supports the common parameters: -Debug, -ErrorAction, -ErrorVariable
 
 ## OUTPUTS
 
+### The created roleAssignmentScheduleRequest returned by Graph (hashtable), with dateTime values converted to local time.
 ## NOTES
 
 ## RELATED LINKS

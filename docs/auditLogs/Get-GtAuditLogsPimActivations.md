@@ -17,7 +17,9 @@ Get-GtAuditLogsPimActivations [[-startDate] <DateTime>] [[-endDate] <DateTime>] 
 ```
 
 ## DESCRIPTION
-Fetches audit logs for successful PIM role activations.
+Fetches directory audit logs for successful PIM role activations ('Add member to role completed (PIM activation)')
+in the given time range, sorted newest first.
+Audit logs are retained for 30 days by default.
 
 Requires scopes: AuditLog.Read.All.
 
@@ -29,6 +31,13 @@ Get-GtAuditLogsPimActivations
 ```
 
 Returns PIM activation logs for the last 30 days.
+
+### EXAMPLE 2
+```
+pimActivations -startDate (Get-Date).AddDays(-7) | Group-Object userPrincipalName
+```
+
+Groups the last 7 days of activations by user.
 
 ## PARAMETERS
 
@@ -71,7 +80,8 @@ This cmdlet supports the common parameters: -Debug, -ErrorAction, -ErrorVariable
 
 ## OUTPUTS
 
-### Array of PIM activation objects with properties: activityDateTime, principalId, userPrincipalName, roleId, justification.
+### Array of PIM activation objects with properties: activityDateTime, principalId, userPrincipalName,
+### roleId (role definition ID), justification.
 ## NOTES
 
 ## RELATED LINKS

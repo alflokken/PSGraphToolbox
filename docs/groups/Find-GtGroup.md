@@ -8,7 +8,7 @@ schema: 2.0.0
 # Find-GtGroup
 
 ## SYNOPSIS
-Search for Entra ID groups by displayName (partial match).
+Search for Entra ID groups by displayName.
 
 ## SYNTAX
 
@@ -17,11 +17,12 @@ Find-GtGroup [-SearchString] <String> [-AdditionalProperties <String>] [<CommonP
 ```
 
 ## DESCRIPTION
-Searches Microsoft Entra ID (Azure AD) groups using a partial match on displayName.
-Returns a list of groups with basic properties (id, displayName, description, createdDateTime, groupTypes, mailEnabled, securityEnabled) by default.
-Uses Microsoft Graph API (beta version) and supports additional property selection via -AdditionalProperties.
+Searches Microsoft Entra ID (Azure AD) groups by displayName ($search, beta endpoint).
+Matches words in displayName that start with the search string (e.g.
+'sales' matches 'EMEA Sales Team').
+Returns all matching groups (results are paged automatically) with basic properties (id, displayName, description, createdDateTime, groupTypes, mailEnabled, securityEnabled) by default.
+Supports additional property selection via -AdditionalProperties.
 Minimum 3 characters required for search string.
-Results are not paged.
 
 Requires scopes: Group.Read.All
 
@@ -32,20 +33,20 @@ Requires scopes: Group.Read.All
 Find-GtGroup "Sales"
 ```
 
-Returns all groups with 'Sales' in their displayName.
+Returns all groups with a word in displayName starting with 'Sales'.
 
 ### EXAMPLE 2
 ```
 Find-GtGroup "Admin" -AdditionalProperties "membershipRule"
 ```
 
-Returns groups with 'Admin' in displayName, including the membershipRule property.
+Returns matching groups, including the membershipRule property.
 
 ## PARAMETERS
 
 ### -SearchString
-The search string (min 3 chars).
-Performs partial match on group displayName.
+The search string (3-99 chars).
+Word-prefix match on group displayName.
 Case-insensitive.
 
 ```yaml
@@ -83,9 +84,8 @@ This cmdlet supports the common parameters: -Debug, -ErrorAction, -ErrorVariable
 ## OUTPUTS
 
 ## NOTES
-Uses Microsoft Graph API beta version for search capability.
-Returned properties can be customized.
-Does not support advanced OData filters.
+Uses the Microsoft Graph beta endpoint.
+Does not support OData filters; use Invoke-GtGraphRequest -Filter for that.
 
 ## RELATED LINKS
 

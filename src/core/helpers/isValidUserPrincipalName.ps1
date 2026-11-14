@@ -4,7 +4,9 @@ function isValidUserPrincipalName {
     Validate if a string is a properly formatted UserPrincipalName (UPN).
 
     .DESCRIPTION
-    Tests whether a string matches a valid email/UPN format (user@domain.com).
+    Tests whether a string matches a basic email/UPN format (user@domain.com).
+    The local part may contain letters, digits, '.', '_' and '-'; the domain must end in a 2+ letter TLD.
+    Valid Entra UPNs containing other characters (e.g. guest UPNs with #EXT#, or ' ! ^ ~) return $false.
     Pipeline-enabled filter function for validating user principal names.
 
     .PARAMETER userPrincipalName

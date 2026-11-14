@@ -24,7 +24,11 @@ state using pluggable storage providers.
 
 First call performs a full sync.
 Subsequent calls retrieve only changes since last sync.
-Handles delta token expiration (410 Gone) by automatically performing a full resync.
+Handles delta token expiration (HTTP 410 Gone, or HTTP 400 'DeltaLink older than') by automatically performing a full resync.
+Stored state is only reused when it was created for the same tenant, ResourcePath, Filter and SelectProperties;
+otherwise a warning is written and the state is replaced by a full sync.
+
+Requires an existing Microsoft Graph connection (Connect-MgGraph); throws if not connected.
 
 Requires scopes: Varies by resource path (e.g., User.Read.All for users/delta).
 
@@ -39,14 +43,6 @@ Performs delta sync of users, storing state in JSON file.
 
 ### EXAMPLE 2
 ```
-$result = Sync-GtGraphResourceDelta -ResourcePath "users/delta?deltaToken=latest" -SelectProperties "id,displayName" -StoragePath ".\users.json"
-```
-
-Start tracking from current state (skip initial full sync).
-Useful when you only care about future changes.
-
-### EXAMPLE 3
-```
 $result = Sync-GtGraphResourceDelta -ResourcePath "groups/delta" -SelectProperties "id,displayName,members" -Filter "id eq 'group-guid-here'" -StoragePath ".\members.json"
 ```
 
@@ -58,9 +54,7 @@ Changelog format: 'members_removed: id1, id2; members_added: id3, id4'
 
 ### -ResourcePath
 The Graph API delta resource path (e.g., "users/delta", "groups/delta").
-
-Append "?deltaToken=latest" to skip initial full sync and only track future changes, be aware
-that this does not support filter parameters.
+Must contain "delta".
 
 ```yaml
 Type: String
@@ -77,7 +71,7 @@ Accept wildcard characters: False
 ### -SelectProperties
 Comma-separated list of properties to track.
 The 'id' property is automatically 
-included if not specified.
+included if not specified; the list is trimmed, sorted and de-duplicated.
 
 ```yaml
 Type: String
@@ -108,7 +102,7 @@ Accept wildcard characters: False
 
 ### -StorageProvider
 Storage backend for persisting delta state.
-Currently supports: JsonFile.
+Currently supports: JsonFile (default).
 Future options may include Sql, CosmosDb, etc.
 
 ```yaml
@@ -125,6 +119,7 @@ Accept wildcard characters: False
 
 ### -StoragePath
 Path to the storage file (for JsonFile provider).
+The parent directory must exist.
 
 ```yaml
 Type: String
@@ -162,13 +157,15 @@ This cmdlet supports the common parameters: -Debug, -ErrorAction, -ErrorVariable
 ## OUTPUTS
 
 ### PSObject with:
-### - ChangeLog: Array of change records (entityId, change type, description)
-### - CurrentState: Updated state object containing all entities and deltaLink
+### - ChangeLog: Array of change records with entityId, entityName, change (ADD, UPDATE or REMOVE) and description. Empty after a full sync.
+### - CurrentState: Updated state object with value (all entities), deltaLink, dateRetrieved and queryId
 ### - ItemCount: Total number of entities in current state
 ## NOTES
 For groups, expanding members have known limitations in Graph delta queries.
 Initial sync may not return complete member lists due to API behavior. 
 Consider using a hybrid approach (regular group members retrieval followed by delta queries) for reliable results.
+
+TODO: add support for 'deltaToken=latest'
 
 ## RELATED LINKS
 

@@ -2,8 +2,6 @@
 external help file: PsGraphToolbox-help.xml
 Module Name: PsGraphToolbox
 online version: https://github.com/alflokken/PSGraphToolbox/blob/main/docs/storageProviders/Set-GtDeltaStateToJsonFile.md
-
-Write delta state to JSON file.
 schema: 2.0.0
 ---
 
@@ -19,17 +17,17 @@ Set-GtDeltaStateToJsonFile [[-Path] <String>] [[-state] <Object>]
 ```
 
 ## DESCRIPTION
-Writes delta query state to a JSON file with UTF-8 encoding.
+Writes delta query state to a JSON file (UTF-8, compressed, depth 10), overwriting any existing file.
 Used by Sync-GtGraphResourceDelta to persist state between runs.
 
 ## EXAMPLES
 
-### Example 1
-```powershell
-PS C:\> {{ Add example code here }}
+### EXAMPLE 1
+```
+Set-GtDeltaStateToJsonFile -Path "C:\state\users-delta.json" -State $state
 ```
 
-{{ Add example description here }}
+Saves the delta state to the file, overwriting any existing content.
 
 ## PARAMETERS
 
@@ -71,9 +69,5 @@ Accept wildcard characters: False
 
 ## RELATED LINKS
 
-[https://github.com/alflokken/PSGraphToolbox/blob/main/docs/storageProviders/Set-GtDeltaStateToJsonFile.md
-
-Write delta state to JSON file.](https://github.com/alflokken/PSGraphToolbox/blob/main/docs/storageProviders/Set-GtDeltaStateToJsonFile.md
-
-Write delta state to JSON file.)
+[https://github.com/alflokken/PSGraphToolbox/blob/main/docs/storageProviders/Set-GtDeltaStateToJsonFile.md](https://github.com/alflokken/PSGraphToolbox/blob/main/docs/storageProviders/Set-GtDeltaStateToJsonFile.md)
 

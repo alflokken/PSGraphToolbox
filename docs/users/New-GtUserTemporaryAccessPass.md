@@ -19,7 +19,10 @@ New-GtUserTemporaryAccessPass [-InputObject] <Object> [-LifetimeInMinutes <Int32
 
 ## DESCRIPTION
 Creates a new Temporary Access Pass for a user via MS Graph API.
-Requires UserAuthenticationMethod.ReadWrite.All permission.
+Unless -WhatIf is used or -Confirm is $false, you are prompted to confirm (Y/N).
+The tenant's Temporary Access Pass policy must allow the requested lifetime and usage.
+
+Requires scopes: UserAuthenticationMethod.ReadWrite.All.
 
 ## EXAMPLES
 
@@ -28,7 +31,7 @@ Requires UserAuthenticationMethod.ReadWrite.All permission.
 New-GtUserTemporaryAccessPass -inputObject "user@zavainc.com"
 ```
 
-Issues a 60-minute TAP for the user.
+Issues a 60-minute TAP for the user after confirmation.
 
 ### EXAMPLE 2
 ```
@@ -37,10 +40,18 @@ Issues a 60-minute TAP for the user.
 
 Issues a single-use 8-hour TAP for the user.
 
+### EXAMPLE 3
+```
+New-GtUserTemporaryAccessPass "user@zavainc.com" -Confirm $false
+```
+
+Issues a TAP without prompting (for automation).
+
 ## PARAMETERS
 
 ### -InputObject
 User object, UPN, or object ID.
+Accepts pipeline input.
 
 ```yaml
 Type: Object
@@ -71,8 +82,8 @@ Accept wildcard characters: False
 ```
 
 ### -IsUsableOnce
-If true, TAP can only be used once.
-Defaults to false.
+If specified, the TAP can only be used once.
+By default the TAP is multi-use.
 
 ```yaml
 Type: SwitchParameter
@@ -87,8 +98,7 @@ Accept wildcard characters: False
 ```
 
 ### -WhatIf
-Shows what would happen if the cmdlet runs.
-The cmdlet is not run.
+Preview the action without making changes.
 
 ```yaml
 Type: SwitchParameter
@@ -103,7 +113,9 @@ Accept wildcard characters: False
 ```
 
 ### -Confirm
-Prompts you for confirmation before running the cmdlet.
+Prompt for confirmation.
+Defaults to true.
+Set to $false to skip the prompt.
 
 ```yaml
 Type: Boolean
@@ -124,6 +136,8 @@ This cmdlet supports the common parameters: -Debug, -ErrorAction, -ErrorVariable
 
 ## OUTPUTS
 
+### PSObject with userId, temporaryAccessPass (the pass in clear text), lifetimeInMinutes, isUsableOnce,
+### startDateTime (local time) and methodUsabilityReason. Nothing is returned with -WhatIf or when cancelled.
 ## NOTES
 
 ## RELATED LINKS

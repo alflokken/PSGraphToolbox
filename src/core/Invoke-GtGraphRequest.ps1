@@ -9,13 +9,18 @@ function Invoke-GtGraphRequest {
     - OData query parameters as native PowerShell parameters
     - ConsistencyLevel header for $search and $count queries
     - Delta query support with deltaLink tracking
-    - Automatic Graph connection if not already connected
+    - Automatic Graph connection (Connect-MgGraph) if not already connected
+    - Throttling retry policy, configured once per session (Set-MgRequestContext -RetryDelay 10 -MaxRetry 5)
+    - Recursive conversion of all dateTime values from UTC to local time
+
+    GET requests only; use Invoke-MgGraphRequest for POST/PATCH/DELETE.
 
     Requires scopes: Varies by resource path.
 
     .PARAMETER ResourcePath
     The Graph API resource path (e.g., "users", "groups/xxx/members").
-    API version prefix (v1.0/ or beta/) is stripped if included.
+    A version prefix (v1.0/ or beta/) is removed; a "beta/" prefix (without a leading slash) also switches the request to the beta endpoint.
+    A full https:// URL (e.g. a nextLink or deltaLink) is used as-is; the OData parameters are then ignored.
 
     .PARAMETER ApiVersion
     Graph API version: "v1.0" or "beta". Defaults to "v1.0".
@@ -35,9 +40,12 @@ function Invoke-GtGraphRequest {
 
     .PARAMETER Expand
     OData $expand expression for related entities.
+    For relationships of directory objects (owners, memberOf, appRoleAssignments, ...), Graph typically returns at 
+    most 20 expanded items and no nextLink; query the relationship directly for complete results.
 
     .PARAMETER Top
-    Maximum number of results per page.
+    Page size ($top): maximum number of results per page. Paging still continues until all results
+    (or -PageLimit pages) are retrieved, so this does not limit the total number of results.
 
     .PARAMETER Count
     Include total count in response. Adds ConsistencyLevel: eventual header.
@@ -47,22 +55,26 @@ function Invoke-GtGraphRequest {
 
     .PARAMETER PageLimit
     Maximum number of pages to retrieve. Defaults to 100.
+    A "Result truncated" warning is written whenever this number of pages is reached.
 
     .PARAMETER AccessToken
     SecureString access token for authentication (optional).
+    When supplied, Connect-MgGraph -AccessToken is called on every invocation, even if already connected.
 
     .OUTPUTS
-    For single resources: PSObject with resource properties.
-    For collections: Array of PSObjects.
+    For single resources: PSObject with resource properties (@odata.* properties removed).
+    For collections: Array of PSObjects (items of all retrieved pages).
     For delta queries: PSObject with value, deltaLink, and dateRetrieved.
+
+    All dateTime values in the returned objects are converted from UTC to local time.
 
     .EXAMPLE
     Invoke-GtGraphRequest -ResourcePath "users" -Select "id,displayName"
     Returns all users with id and displayName.
 
     .EXAMPLE
-    Invoke-GtGraphRequest -ResourcePath "users" -Filter "accountEnabled eq true" -Top 10
-    Returns first 10 enabled users.
+    Invoke-GtGraphRequest -ResourcePath "users" -Filter "accountEnabled eq true" -Top 999
+    Returns all enabled users, retrieved 999 per page.
 
     .EXAMPLE
     Invoke-GtGraphRequest -ResourcePath "users" -Search '"displayName:john"' -Select "id,displayName"
@@ -134,33 +146,35 @@ function Invoke-GtGraphRequest {
         if ( $headers ) { $params.Headers = $headers }
         if ( $currentPage -ne 0 ) { $params.Uri = $response.'@odata.nextLink' }
         
-        Write-Verbose "Invoke-MgGraphRequests: Retrieving page $($currentPage + 1)"
+        Write-GtVerbose "Invoke-MgGraphRequests: Retrieving page $($currentPage + 1)"
         try { 
             $response = Invoke-MgGraphRequest @params
             # collection (delta or paginated) or single-resource response (flat)
             if ( $response.PSObject.Properties.Name -contains 'value' ) { $responseArray += $response.value }
-            else { return $response | Select-Object -Property * -ExcludeProperty "@odata.*" }
+            else { return (ConvertTo-GtLocalDateTime -InputObject ($response | Select-Object -Property * -ExcludeProperty "@odata.*")) }
             $currentPage++
         }
         catch { throw $_ }
 
-        if ( $currentPage -ge $PageLimit ) { Write-Warning "Invoke-MgGraphRequests: pageLimit $($PageLimit) reached. Result truncated." }
+        if ( $currentPage -ge $PageLimit -and $response.'@odata.nextLink' ) { Write-Warning "Invoke-MgGraphRequests: pageLimit $($PageLimit) reached. Result truncated." }
     } while ( $response.'@odata.nextLink' -and $currentPage -lt $PageLimit )
 
     # if deltaLink present, wrap response in object with deltaLink and dateRetrieved
     if ( $response.PSObject.Properties.Name -contains "@odata.deltaLink" ) { 
         $Obj = New-Object -TypeName PSObject
-        $Obj | Add-Member -NotePropertyName "value" -TypeName NoteProperty $responseArray
+        $Obj | Add-Member -NotePropertyName "value" -NotePropertyValue $responseArray
         # Preserve API version in deltaLink - Graph may return v1.0 even when beta was requested
         # This ensures subsequent delta queries use the same API version as the initial request
         $deltaLink = $response.'@odata.deltaLink'
         if ( $ApiVersion -eq 'beta' -and $deltaLink -match 'graph\.microsoft\.com/v1\.0/' ) {
             $deltaLink = $deltaLink -replace 'graph\.microsoft\.com/v1\.0/', 'graph.microsoft.com/beta/'
-            Write-Verbose "Invoke-GtGraphRequest: Adjusted deltaLink to use beta API version"
+            Write-GtVerbose "Invoke-GtGraphRequest: Adjusted deltaLink to use beta API version"
         }
-        $Obj | Add-Member -NotePropertyName "deltaLink" -TypeName NoteProperty $deltaLink
-        $Obj | Add-Member -NotePropertyName "dateRetrieved" -TypeName NoteProperty (get-date -UFormat "%Y-%m-%dT%H:%M:%SZ")
+        $Obj | Add-Member -NotePropertyName "deltaLink" -NotePropertyValue $deltaLink
+        $Obj | Add-Member -NotePropertyName "dateRetrieved" -NotePropertyValue ((Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ"))
         $responseArray = $Obj
     }
-    return $responseArray 
+
+    # convert all dateTime values (UTC -> local) recursively before returning
+    return (ConvertTo-GtLocalDateTime -InputObject $responseArray)
 }

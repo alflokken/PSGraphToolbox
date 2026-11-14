@@ -17,10 +17,14 @@ Get-GtSamlCertificateReport [[-outputType] <String>] [<CommonParameters>]
 ```
 
 ## DESCRIPTION
-Retrieves SAML/SSO signing certificates from enterprise applications (service principals).
+Retrieves SAML/SSO signing certificates from enterprise applications (service principals with
+preferredSingleSignOnMode 'saml').
 These are certificates used for SAML token signing, separate from app registration credentials.
+Certificates are de-duplicated by customKeyIdentifier (thumbprint), so each certificate appears once.
+Expired certificates are included.
+Results are sorted by daysUntilExpiry (expired and soonest-expiring first).
 
-For application registration credentials (secrets/certificates), use Get-GtApplicationCredentialReport.
+For application registration credentials (secrets/certificates), use Get-GtAppCredentialReport.
 
 Requires scopes: Application.Read.All.
 
@@ -32,6 +36,13 @@ Get-GtSamlCertificateReport
 ```
 
 Generates HTML report of all SAML signing certificates.
+
+### EXAMPLE 2
+```
+Get-GtSamlCertificateReport -outputType PSObject | Where-Object { $_.daysUntilExpiry -lt 30 }
+```
+
+Returns SAML certificates that expire within 30 days (or have expired).
 
 ## PARAMETERS
 
@@ -58,8 +69,10 @@ This cmdlet supports the common parameters: -Debug, -ErrorAction, -ErrorVariable
 
 ## OUTPUTS
 
-### Array of certificate objects (PSObject mode) or HTML report file path (html mode).
-### Each object contains: appDisplayName, appId, keyId, certificateName, startDateTime, endDateTime, daysUntilExpiry, isExpired, appOwners.
+### PSObject mode: array of certificate objects with appDisplayName, appId, keyId, certificateName, startDateTime, endDateTime,
+### daysUntilExpiry, isExpired, appOwners.
+### html mode: nothing is returned. The report is written to .\PSGraphToolbox_SamlCertificates_<yyyyMMdd_HHmmss>.html
+### in the current directory and opened in the default browser.
 ## NOTES
 
 ## RELATED LINKS

@@ -5,17 +5,35 @@ function Revoke-GtUserSession {
 
     .DESCRIPTION
     Invalidates all refresh tokens issued to applications for a user.
-    Also invalidates session cookies in the user's browser.
-    Requires User.ReadWrite.All or Directory.ReadWrite.All.
+    Also invalidates session cookies in the user's browser. Revocation can take a few minutes,
+    and does not apply to external (guest) users, who sign in through their home tenant.
+    Unless -WhatIf is used or -Confirm is $false, you are prompted to confirm (Y/N).
 
-    .PARAMETER inputObject
-    User object, UPN, or object ID.
+    Requires scopes: User.RevokeSessions.All (least privileged), or User.ReadWrite.All / Directory.ReadWrite.All.
+
+    .PARAMETER InputObject
+    User object, UPN, or object ID. Accepts pipeline input.
+
+    .PARAMETER WhatIf
+    Preview the action without making changes.
+
+    .PARAMETER Confirm
+    Prompt for confirmation. Defaults to true. Set to $false to skip the prompt.
+
+    .OUTPUTS
+    PSObject with userId, success (value returned by Graph) and timestamp. Nothing is returned with -WhatIf or when cancelled.
 
     .EXAMPLE
     Revoke-GtUserSession -inputObject "user@zavainc.com"
+    Revokes all sessions for the user after confirmation.
 
     .EXAMPLE
-    "user@zavainc.com" | Revoke-GtUserSession
+    "user@zavainc.com" | Revoke-GtUserSession -WhatIf
+    Shows which user's sessions would be revoked, without making changes.
+
+    .EXAMPLE
+    Revoke-GtUserSession -inputObject "user@zavainc.com" -Confirm $false
+    Revokes all sessions without prompting.
 
     .LINK
     https://github.com/alflokken/PSGraphToolbox/blob/main/docs/users/Revoke-GtUserSession.md
@@ -32,7 +50,7 @@ function Revoke-GtUserSession {
         [bool]$Confirm = $true
     )
     process {
-        $id = idFromInputObject -inputObject $InputObject | Select-Object -ExpandProperty id
+        $id = Get-IdFromInputObject -inputObject $InputObject | Select-Object -ExpandProperty id
 
         if ( $Confirm -and -not $WhatIf ) {
             $confirmation = Read-Host "Revoke all sessions for user '$id'? (Y/N)"

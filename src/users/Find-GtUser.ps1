@@ -4,17 +4,24 @@ function Find-GtUser {
     Search Entra ID users by displayName or UPN.
 
     .DESCRIPTION
-    Finds users by partial displayName or exact UPN. Returns basic properties. Supports extra properties via -AdditionalProperties. Requires User.Read.All.
+    Finds users by displayName or exact UPN (beta endpoint).
+    - A string recognized as a UPN (see isValidUserPrincipalName) is matched exactly against userPrincipalName.
+    - Any other string, including guest #EXT# UPNs, is a displayName search ($search): it matches words in
+      displayName that start with the search string (e.g. 'john' matches 'John Doe' and 'Mary Johnson', not 'Littlejohn').
+    Returns id, displayName, userPrincipalName, accountEnabled, mobilePhone, createdDateTime and
+    lastPasswordChangeDateTime, plus any -AdditionalProperties.
+
+    Requires scopes: User.Read.All.
 
     .PARAMETER SearchString
-    Search string (min 3 chars). Partial match for displayName, exact for UPN.
+    Search string (3-99 chars). Word-prefix match on displayName, exact match for UPN.
 
     .PARAMETER AdditionalProperties
-    Extra properties to include in results.
+    Extra properties to include in results (comma-separated, e.g. "department,jobTitle").
 
     .EXAMPLE
     Find-GtUser "john"
-    Searches for users with 'john' in displayName.
+    Returns users with a word in displayName starting with 'john'.
 
     .EXAMPLE
     Find-GtUser "john.doe@zavainc.com"
@@ -30,7 +37,7 @@ function Find-GtUser {
         [String]$SearchString,
 
         [Parameter(Mandatory = $false)]
-        [ValidatePattern("[a-z0-9,]")]
+        [ValidatePattern("^[a-z0-9,]+$")]
         [String]$AdditionalProperties
     )
     
@@ -42,7 +49,7 @@ function Find-GtUser {
     if ( $SearchString | isValidUserPrincipalName ) { $queryParams.filter = "userPrincipalName eq '$SearchString'" }
     else { $queryParams.search = "`"displayName:$SearchString`""}
 
-    Write-Verbose "Searching users with $($queryParams.search) $($queryParams.filter)"
+    Write-GtVerbose "Searching users with $($queryParams.search) $($queryParams.filter)"
     try { return Invoke-GtGraphRequest @queryParams -verbose:$false }
     catch { throw $_ }
     # todo if filter and no response, try search proxyAddresses

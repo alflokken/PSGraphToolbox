@@ -4,21 +4,23 @@ function Get-GtDomains {
     Get tenant domains with federation configuration.
 
     .DESCRIPTION
-    Retrieves all domains registered in the tenant. For federated domains,
-    enriches with federation configuration (signing certs, SSO URLs, MFA behavior).
+    Retrieves all domains registered in the tenant.
 
-    Output properties vary by domain type:
-    - Managed domains: id, authenticationType, isVerified, isRoot
-    - Federated domains: Above plus fedDisplayname, fedServiceUrl, fedSigningCert, fedNextSigningCert, fedMfaBehavior
+    Output properties depend on whether the tenant has federated domains:
+    - No federated domains: id, authenticationType, isVerified
+    - At least one federated domain: all domains (sorted by authenticationType) with id, authenticationType, isVerified, isRoot,
+      fedDisplayname, fedSigningCert, fedNextSigningCert, fedServiceUrl, fedMfaBehavior.
+      The fed* properties are populated only for federated root domains (from their federationConfiguration);
+      signing certificates are shortened to their first and last 5 characters.
 
     Requires scopes: Domain.Read.All.
 
     .OUTPUTS
-    Array of domain objects. Properties depend on authentication type (see description).
+    Array of domain objects. Properties depend on the tenant's domain configuration (see description).
 
     .EXAMPLE
     Get-GtDomains
-    Returns all tenant domains with federation details.
+    Returns all tenant domains, with federation details for federated root domains.
 
     .LINK
     https://github.com/alflokken/PSGraphToolbox/blob/main/docs/domains/Get-GtDomains.md
